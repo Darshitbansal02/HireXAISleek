@@ -1,13 +1,15 @@
-import psycopg2
-import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # -------------------------------------------------
 # 🔧 1. PASTE YOUR SUPABASE DETAILS HERE
 # -------------------------------------------------
-SUPABASE_API_URL = "https://vhotbnnopskleryjjhns.supabase.co"
-SUPABASE_PROJECT_ID = "vhotbnnopskleryjjhns"
-SUPABASE_PASSWORD = "kIWSK9T62lGUQHrp"
-SUPABASE_DB_URL = f"postgresql://postgres:{SUPABASE_PASSWORD}@db.{SUPABASE_PROJECT_ID}.supabase.co:5432/postgres"
+SUPABASE_API_URL = os.getenv("SUPABASE_API_URL")
+SUPABASE_PROJECT_ID = os.getenv("SUPABASE_PROJECT_ID")
+SUPABASE_PASSWORD = os.getenv("SUPABASE_PASSWORD")
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
 # -------------------------------------------------
 
 
