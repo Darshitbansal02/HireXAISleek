@@ -1,0 +1,44 @@
+2025-11-30 15:43:14 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 15:45:06 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 15:55:45 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:07:55 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:14:27 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:15:22 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:28:09 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:32:32 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 16:35:11 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 16:35:15 | INFO     | services.llm_service:generate:37 - Successfully generated 3345 characters with groq
+2025-11-30 16:41:23 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 16:41:28 | INFO     | services.llm_service:generate:37 - Successfully generated 3377 characters with groq
+2025-11-30 16:54:55 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 16:54:58 | INFO     | services.llm_service:generate:37 - Successfully generated 1951 characters with groq
+2025-11-30 16:55:20 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 16:55:23 | INFO     | services.llm_service:generate:37 - Successfully generated 235 characters with groq
+2025-11-30 16:55:33 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 16:55:36 | INFO     | services.llm_service:generate:37 - Successfully generated 1182 characters with groq
+2025-11-30 17:10:49 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 17:10:56 | INFO     | services.llm_service:generate:37 - Successfully generated 1629 characters with groq
+2025-11-30 17:24:13 | WARNING  | main:auth_exception_handler:53 - Auth error: Could not validate credentials
+2025-11-30 17:24:13 | WARNING  | main:auth_exception_handler:53 - Auth error: Could not validate credentials
+2025-11-30 17:29:07 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 17:29:10 | INFO     | services.llm_service:generate:37 - Successfully generated 414 characters with groq
+2025-11-30 17:29:50 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 17:29:55 | INFO     | services.llm_service:generate:37 - Successfully generated 745 characters with groq
+2025-11-30 17:30:13 | INFO     | services.llm_service:generate:34 - Attempting generation with groq (attempt 1)
+2025-11-30 17:30:16 | INFO     | services.llm_service:generate:37 - Successfully generated 1039 characters with groq
+2025-11-30 17:40:55 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 17:46:37 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:48:09 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:48:23 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:49:26 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 17:51:00 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:53:06 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:53:36 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:54:57 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:55:40 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:56:43 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:57:50 | ERROR    | main:global_exception_handler:91 - Global error: schemas.candidate_profile.CandidateProfileWithUser() got multiple values for keyword argument 'resume_url'
+2025-11-30 17:59:45 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 18:09:25 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 18:16:59 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-11-30 18:36:36 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully

@@ -1,0 +1,120 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from core.config import settings
+from core.logging import get_logger
+from core.exceptions import AuthError, PermissionDeniedError, NotFoundError, ValidationError, LLMError
+from api.v1 import auth, candidate, recruiter, notifications, resume_builder
+from api import search_routes, llm_routes
+# Import other routers as they are migrated
+# from api.v1 import jobs, admin
+
+logger = get_logger()
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=f"{settings.API_V1_STR}/docs",
+    redoc_url=f"{settings.API_V1_STR}/redoc",
+)
+
+# Auto-create tables (Removes need for manual Alembic migrations in dev)
+from core.database import Base, engine
+from models.user import User
+from models.job import Job
+from models.application import Application
+from models.resume import Resume
+from models.candidate_profile import CandidateProfile
+from models.saved_job import SavedJob
+from models.shortlisted_candidate import ShortlistedCandidate
+from models.scheduled_event import ScheduledEvent
+Base.metadata.create_all(bind=engine)
+
+# CORS Middleware
+print(f"[DEBUG] BACKEND_CORS_ORIGINS found in settings: {settings.BACKEND_CORS_ORIGINS}")
+origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
+
+# Fallback if no origins defined (should not happen with new defaults)
+if not origins:
+    origins = ["http://localhost:3000"]
+print(f"[DEBUG] Allowed Origins for CORS: {origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global Exception Handlers
+@app.exception_handler(AuthError)
+async def auth_exception_handler(request: Request, exc: AuthError):
+    logger.warning(f"Auth error: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": "Authentication Failed", "details": exc.detail},
+    )
+
+@app.exception_handler(PermissionDeniedError)
+async def permission_exception_handler(request: Request, exc: PermissionDeniedError):
+    logger.warning(f"Permission denied: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": "Permission Denied", "details": exc.detail},
+    )
+
+@app.exception_handler(NotFoundError)
+async def not_found_exception_handler(request: Request, exc: NotFoundError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": "Not Found", "details": exc.detail},
+    )
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": "Validation Error", "details": exc.detail},
+    )
+
+@app.exception_handler(LLMError)
+async def llm_exception_handler(request: Request, exc: LLMError):
+    logger.error(f"LLM error: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": "AI Service Unavailable", "details": exc.detail},
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "error": "Internal Server Error", "details": str(exc)},
+    )
+
+# Include Routers
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(candidate.router, prefix="/api/v1/candidate", tags=["Candidate"])
+app.include_router(recruiter.router, prefix=f"{settings.API_V1_STR}/recruiter", tags=["Recruiter"])
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["Notifications"])
+# app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(llm_routes.router, prefix="/api/v1/llm", tags=["LLM"])
+app.include_router(resume_builder.router, prefix="/api/v1/resume_builder", tags=["Resume Builder"])
+
+from api import dashboard_routes, search_routes
+app.include_router(dashboard_routes.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["Dashboard"])
+app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search", tags=["Search"])
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to HireXAI API",
+        "docs": f"{settings.API_V1_STR}/docs",
+        "version": "2.0.0"
+    }
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 HireXAI Backend Started Successfully")

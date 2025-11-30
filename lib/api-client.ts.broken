@@ -1,0 +1,496 @@
+import axios, { AxiosInstance } from "axios";
+
+interface AuthUser {
+  id: number;
+  email: string;
+  role: "candidate" | "recruiter" | "admin";
+  full_name?: string;
+}
+
+interface ApiError {
+  status: number;
+  message: string;
+  detail?: any;
+}
+
+export interface Job {
+  id: number;
+  title: string;
+  description: string;
+  location: string;
+  min_experience: number;
+  skills: string;
+  company: string;
+  type: string;
+  recruiter_id: number;
+  created_at: string;
+  status: string;
+  applications?: Application[];
+}
+
+export interface Application {
+  id: number;
+  job_id: number;
+  candidate_id: number;
+  status: string;
+  cover_letter?: string;
+  applied_at: string;
+}
+
+export interface Candidate {
+  id: number;
+  full_name: string;
+  email: string;
+  headline?: string;
+  location?: string;
+  experience_years?: number;
+  skills?: string | string[];
+  similarity?: number;
+}
+
+class ApiClient {
+  private client: AxiosInstance;
+  private baseURL: string;
+
+  constructor() {
+    this.baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
+    this.client = axios.create({
+      baseURL: this.baseURL,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    // Add interceptor to attach token
+    this.client.interceptors.request.use((config) => {
+      const token = this.getToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
+    // Add interceptor to handle 401 errors
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          this.clearAuth();
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+        }
+        throw error;
+      }
+    );
+  }
+
+  setToken(token: string) {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("auth_token", token);
+    }
+  }
+
+  getToken(): string | null {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("auth_token");
+    }
+    return null;
+  }
+
+  clearAuth() {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+    }
+  }
+
+  isAuthenticated(): boolean {
+    return this.getToken() !== null;
+  }
+
+  // Auth endpoints
+  async register(payload: {
+    email: string;
+    password: string;
+    full_name: string;
+    role: "candidate" | "recruiter";
+  }) {
+    try {
+      const response = await this.client.post("/v1/auth/register", payload);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async login(payload: { email: string; password: string }) {
+    try {
+      const formData = new FormData();
+      formData.append("username", payload.email);
+      formData.append("password", payload.password);
+
+      const response = await this.client.post("/v1/auth/login", formData, {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      });
+
+      const { access_token } = response.data;
+      this.setToken(access_token);
+
+      // Fetch user details
+      const userResponse = await this.client.get("/v1/auth/me");
+      const user = userResponse.data;
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("user", JSON.stringify(user));
+      }
+      return { access_token, user };
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  // Recruiter endpoints
+  async postJob(payload: {
+    title: string;
+    description: string;
+    location: string;
+    min_experience: number;
+    skills: string;
+    company?: string;
+    type?: string;
+  }) {
+  } catch(error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getJobs(skip = 0, limit = 100) {
+  try {
+    const response = await this.client.get(`/v1/candidate/jobs?skip=${skip}&limit=${limit}`);
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getSavedJobs() {
+  try {
+    const response = await this.client.get("/v1/candidate/jobs/saved");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async saveJob(jobId: number) {
+  try {
+    const response = await this.client.post(`/v1/candidate/jobs/save/${jobId}`);
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getRecommendedJobs() {
+  try {
+    const response = await this.client.get("/v1/candidate/jobs/recommended");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async updateProfileEmbedding() {
+  try {
+    const response = await this.client.post("/v1/candidate/profile/update-embedding");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getCandidateStats() {
+  try {
+    const response = await this.client.get("/v1/dashboard/candidate/stats");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getRecruiterStats() {
+  try {
+    const response = await this.client.get("/v1/dashboard/recruiter/stats");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async searchCandidates(query: string) {
+  try {
+    const response = await this.client.post("/v1/search/candidates", { query });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async searchJobs(query: string) {
+  try {
+    const response = await this.client.post("/v1/search/jobs", { query });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  // AI endpoints
+  async optimizeResume(resumeText: string) {
+  try {
+    const response = await this.client.post("/v1/llm/analyze-resume", {
+      resume_text: resumeText,
+    });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async analyzeResume(resumeText: string) {
+  try {
+    const response = await this.client.post("/v1/llm/analyze-resume", {
+      resume_text: resumeText,
+    });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async getProfile() {
+  try {
+    const response = await this.client.get("/v1/candidate/profile");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async updateProfile(profileData: any) {
+  try {
+    const response = await this.client.put("/v1/candidate/profile", profileData);
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async uploadResume(file: File) {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await this.client.post("/v1/candidate/resume/upload", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async deleteResume() {
+  try {
+    const response = await this.client.delete("/v1/candidate/resume");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async extractResumeText() {
+  try {
+    const response = await this.client.post("/v1/candidate/resume/extract");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+getResumeFileUrl() {
+  return `${this.baseURL}/v1/candidate/resume/file?t=${Date.now()}`;
+}
+
+  async fetchResumeFileBlob() {
+  try {
+    const response = await this.client.get("/v1/candidate/resume/file", {
+      responseType: 'blob'
+    });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async buildResume(payload: {
+  name: string;
+  email: string;
+  education: string;
+  experience: string;
+  skills: string;
+}) {
+  try {
+    const prompt = `Create a professional, well-formatted resume.\n\nName: ${payload.name}\nEmail: ${payload.email}\nEducation: ${payload.education || 'Not provided'}\nExperience: ${payload.experience || 'Not provided'}\nSkills: ${payload.skills}\n\nFormat this as a complete resume with clear sections for Summary, Education, Experience, and Skills.`;
+
+    const response = await this.client.post("/v1/llm/generate", {
+      prompt: prompt,
+      system_prompt: "You are an expert resume writer with 10+ years of experience. Create professional, ATS-friendly resumes that highlight candidate strengths."
+    });
+    return { resume_text: response.data.text };
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async chat(message: string) {
+  try {
+    const response = await this.client.post("/v1/llm/generate", {
+      prompt: message,
+      system_prompt: `You are the HireXAI Platform Assistant. Help users navigate and use HireXAI's AI-powered features.
+
+**For Candidates:**
+• Search jobs with AI Semantic Search (natural language queries)
+• Build AI-optimized resumes instantly
+• Get AI resume improvement suggestions
+• Apply to jobs with one click
+• Track your applications
+
+**For Recruiters:**
+• Post jobs with AI-generated descriptions
+• Use AI Semantic Search to find perfect candidates
+• View and manage all applications
+• Get hiring analytics and insights
+• Delete or close job postings
+
+**Platform Features:**
+✨ AI-Powered Job Descriptions - Generate compelling postings instantly
+✨ AI Resume Builder - Create professional resumes in seconds
+✨ Semantic Search - Find candidates or jobs using natural language
+✨ Real-Time Analytics - Track hiring trends and metrics
+✨ Smart Matching - AI matches candidates to jobs
+
+**Important**: Only answer questions about HireXAI platform features and how to use them. For general hiring advice, direct users to the specific HireXAI feature that can help them accomplish their goal.
+
+Be concise, friendly, and actionable. Always guide users to use platform features.`
+    });
+    return { response: response.data.text };
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async generateJobDescription(payload: {
+  title: string;
+  company?: string;
+  location?: string;
+  experience?: string;
+  skills?: string;
+  type?: string;
+}) {
+  try {
+    const prompt = `Generate a professional job description:\n\nJob Title: ${payload.title}\nCompany: ${payload.company || 'Our Company'}\nLocation: ${payload.location || 'Not specified'}\nExperience Required: ${payload.experience || '0'} years\nRequired Skills: ${payload.skills || 'Not specified'}\nEmployment Type: ${payload.type || 'Full-time'}\n\nCreate a detailed, compelling job description including role overview, key responsibilities, required qualifications, preferred qualifications, and what the company offers.`;
+
+    const response = await this.client.post("/v1/llm/generate", {
+      prompt: prompt,
+      system_prompt: "You are an expert technical recruiter and job description writer. Create compelling, professional job descriptions that attract top talent while being clear about requirements.",
+      max_tokens: 800,
+      temperature: 0.3
+    });
+    return { description: response.data.text };
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  // Resume Builder endpoints
+  async saveResume(data: any) {
+  try {
+    const response = await this.client.post("/v1/resume_builder/save", data);
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async fetchResume() {
+  try {
+    const response = await this.client.get("/v1/resume_builder/fetch");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async polishText(text: string, sectionType: string) {
+  try {
+    const response = await this.client.post("/v1/resume_builder/ai-polish", {
+      text,
+      section_type: sectionType
+    });
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  async generateResumeSummary(resumeData: any) {
+  try {
+    const response = await this.client.post("/v1/resume_builder/ai-generate-summary", resumeData);
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  // Health check
+  async health() {
+  try {
+    const response = await this.client.get("/health");
+    return response.data;
+  } catch (error) {
+    throw this.handleError(error);
+  }
+}
+
+  private handleError(error: any): ApiError {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status || 500;
+    let message = "An error occurred";
+
+    if (error.response?.data) {
+      const data = error.response.data;
+      if (typeof data.detail === 'string') {
+        message = data.detail;
+      } else if (data.message) {
+        message = data.message;
+      } else if (typeof data === 'string') {
+        message = data;
+      } else {
+        message = JSON.stringify(data);
+      }
+    } else {
+      message = error.message || "Network error";
+    }
+
+    return { status, message, detail: error.response?.data };
+  }
+  return { status: 500, message: error.message || "An unexpected error occurred" };
+}
+}
+
+export const apiClient = new ApiClient();

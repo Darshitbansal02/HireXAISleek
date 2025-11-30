@@ -1,0 +1,1 @@
+Error: When initializing mapper Mapper[Job(jobs)], expression 'SavedJob' failed to locate a name ('SavedJob'). If this is a class name, consider adding this relationship() to the <class 'models.job.Job'> class after both dependent classes have been defined.

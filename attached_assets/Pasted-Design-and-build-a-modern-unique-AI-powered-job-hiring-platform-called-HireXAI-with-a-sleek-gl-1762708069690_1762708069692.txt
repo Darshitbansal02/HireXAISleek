@@ -1,0 +1,164 @@
+Design and build a modern, unique, AI-powered job & hiring platform called HireXAI, with a sleek, glassmorphic, and animated interface.
+The goal is to make it more intelligent, interactive, and visually superior to traditional sites like Naukri.com.
+
+🧩 Key Features (Frontend Only)
+🔐 Authentication System
+
+Role-based login/register:
+
+Candidate
+
+Recruiter
+
+Admin
+
+Include email/password + social login placeholders (Google, LinkedIn).
+
+JWT-based mock auth flow.
+
+Modern animated forms with gradient glass effects.
+
+👤 Candidate Dashboard
+
+Smart profile setup wizard.
+
+AI Resume Doctor:
+
+Upload resume → show ATS score, missing keywords, and suggestions.
+
+“One-click Fix Resume” → sends to backend API.
+
+AI Resume Builder:
+
+Multi-step wizard that builds resume dynamically.
+
+Auto-preview PDF with download option.
+
+“Recommended Jobs” powered by AI (mock data).
+
+Application tracker with progress bars.
+
+🧠 Recruiter Dashboard
+
+AI Semantic Search Bar → search candidates using natural language (mock backend).
+
+Candidate results with:
+
+AI Match Score
+
+Skill badges
+
+Resume preview
+
+Shortlist / Invite buttons.
+
+Job Posting tab with AI Job Description Writer → recruiter types basic role, AI completes JD.
+
+Interview Scheduler mock section.
+
+Candidate insights (charts for skill distribution, diversity).
+
+⚙️ Admin Dashboard
+
+Overview cards (Total users, recruiters, candidates).
+
+Manage users (CRUD).
+
+Dashboard Analytics (Recharts): hiring trends, skill trends.
+
+Fairness & Bias Audit mock panel.
+
+🏠 Landing Page (Public)
+
+Hero: “Hire Smarter, Not Harder with HireXAI”
+
+Animated illustration or 3D mock of AI connecting recruiter ↔ candidate.
+
+Sections:
+
+“For Recruiters” → AI talent matching.
+
+“For Candidates” → Resume doctor & builder.
+
+“For Institutions” → Placement analytics.
+
+CTA Buttons: “Start Hiring” / “Find Jobs”.
+
+Footer: contact, policies, credits.
+
+🎨 Design & Aesthetics
+
+Framework: Next.js + Tailwind + Framer Motion + Shadcn/UI
+
+Style: Futuristic minimal + Classic gradient blend
+→ dark navy, royal blue, silver-white
+
+Layout: Full-width glass panels, soft shadows, rounded corners
+
+Animations: Smooth fade & slide transitions, floating icons
+
+UI Kit: Heroicons or Lucide-React for icons
+
+Typography: Inter / Poppins for clarity
+
+Themes: Light / Dark toggle
+
+⚙️ Tech Stack
+
+Framework: Next.js (App Router)
+
+Styling: Tailwind CSS + Shadcn/UI
+
+Animations: Framer Motion
+
+State Management: Zustand
+
+Forms: React Hook Form + Zod
+
+Charts: Recharts
+
+API Calls: Axios (with mock API placeholders)
+
+💬 Additional Modern Touches
+
+AI Chatbox Sidebar: Ask HireXAI (mock AI assistant that guides users).
+
+Notification system: Toasts for actions (resume upload, job posted).
+
+Profile completion meter on dashboards.
+
+Gamified UI: Reward badges for activity (optional enhancement).
+
+Accessibility features: ARIA roles, keyboard shortcuts.
+
+🧭 Routing Plan
+
+/ → Landing Page
+
+/login → Login Page
+
+/register → Register Page
+
+/candidate → Candidate Dashboard
+
+/recruiter → Recruiter Dashboard
+
+/admin → Admin Dashboard
+
+/ats-checker → AI Resume Doctor
+
+/resume-builder → AI Resume Builder
+
+/search → AI Semantic Search
+
+/settings → Profile Settings
+
+🧩 Expected Output
+
+Complete Next.js frontend code ready for Replit or Vercel.
+
+All pages linked with mock data.
+
+Responsive, futuristic design with animations.
+
+Modular, commented code ready for backend API integration.

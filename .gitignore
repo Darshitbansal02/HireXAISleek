@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.production
+.env.development
+.env.test
+!**/.env.example
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.next/
+dist/
+build/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+backend/uploads/
+backend/logs/
+backend/debug_output.log
+backend/migration_output.txt
+backend/search_debug.txt
+backend/output.txt
+backend/db_status.txt
+backend/fix_report.txt
+backend/next_steps.txt
+backend/backend.zip
+backend/backend (2).zip
+hirexai.db

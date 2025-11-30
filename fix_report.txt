@@ -1,0 +1,3 @@
+I have updated the `postcss.config.js` file to use `@tailwindcss/postcss` as per the error message. This change directly addresses the error message you received.
+
+Please try running your application again with `npm run dev` (or your usual development command) to see if the issue is resolved.
