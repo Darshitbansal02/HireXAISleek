@@ -8,7 +8,7 @@ from alembic import context
 # Import Base and settings
 from core.config import settings
 from core.database import Base
-from models.user import User # Import all models here
+from models import * # Import all models to register them with Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -75,7 +75,12 @@ class Settings(BaseSettings):
     JUDGE0_API_URL: str = "https://judge0-ce.p.rapidapi.com"
     JUDGE0_API_KEY: Optional[str] = None
 
-    # File Uploads
+    # Supabase Configuration
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_KEY: Optional[str] = None
+    SUPABASE_STORAGE_BUCKET: str = "resumes"
+
+    # File Uploads (Deprecated: local storage)
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_SIZE: int = 5 * 1024 * 1024  # 5MB
 
