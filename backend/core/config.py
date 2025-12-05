@@ -3,20 +3,8 @@ from typing import List, Optional, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# --- FIX: Calculate Absolute Path to Root Database ---
-# 1. Get location of this file (backend/core/config.py)
-current_file_dir = os.path.dirname(os.path.abspath(__file__))
-# 2. Go up two levels to Root (D:\HireXAISleek)
-root_dir = os.path.dirname(os.path.dirname(current_file_dir))
-# 3. Create absolute path to DB
-db_path = os.path.join(root_dir, "hirexai.db")
-# 4. Create the connection string
-ROOT_DATABASE_URL = f"sqlite:///{db_path}"
-
-print(f"[INFO] CONFIG LOADED: Connecting to database at -> {ROOT_DATABASE_URL}")
-
 # Calculate absolute path to .env file in backend directory
-# current_file_dir is .../backend/core
+current_file_dir = os.path.dirname(os.path.abspath(__file__))
 # We want .../backend/.env
 env_path = os.path.join(os.path.dirname(current_file_dir), ".env")
 
@@ -44,7 +32,8 @@ class Settings(BaseSettings):
             if supabase_url.startswith("postgres://"):
                 return supabase_url.replace("postgres://", "postgresql://", 1)
             return supabase_url
-        return v or ROOT_DATABASE_URL
+            
+        raise ValueError("No valid database URL found. SUPABASE_DB_URL or DATABASE_URL must be set.")
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
