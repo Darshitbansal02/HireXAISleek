@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api-client";
-import { Loader2, BookmarkX, Calendar, FileText, Trash2 } from "lucide-react";
+import { Loader2, BookmarkX, Calendar, FileText, Trash2, Video } from "lucide-react";
 import { CandidateCard } from "@/components/CandidateCard";
 import { CandidateProfileModal } from "@/components/CandidateProfileModal";
 import { ScheduleModal } from "@/components/ScheduleModal";
+import { AssignTestModal } from "../../../components/AssignTestModal";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function ShortlistedCandidatesPage() {
@@ -17,6 +18,7 @@ export default function ShortlistedCandidatesPage() {
     const [selectedJobId, setSelectedJobId] = useState<number | undefined>(undefined);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+    const [isAssignTestModalOpen, setIsAssignTestModalOpen] = useState(false);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -67,6 +69,11 @@ export default function ShortlistedCandidatesPage() {
         setSelectedCandidateId(candidateId);
         setSelectedJobId(jobId);
         setIsScheduleModalOpen(true);
+    };
+
+    const handleAssignTest = (candidateId: number) => {
+        setSelectedCandidateId(candidateId);
+        setIsAssignTestModalOpen(true);
     };
 
     if (loading) {
@@ -123,15 +130,24 @@ export default function ShortlistedCandidatesPage() {
                                 }}
                                 onViewProfile={handleViewProfile}
                                 actions={
-                                    <>
+                                    <div className="flex gap-2 w-full">
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             className="flex-1"
                                             onClick={() => handleSchedule(item.candidate_id, item.job_id)}
                                         >
-                                            <Calendar className="h-4 w-4 mr-2" />
-                                            Schedule
+                                            <Video className="h-4 w-4 mr-2" />
+                                            Interview
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="flex-1"
+                                            onClick={() => handleAssignTest(item.candidate_id)}
+                                        >
+                                            <FileText className="h-4 w-4 mr-2" />
+                                            Test
                                         </Button>
                                         <Button
                                             variant="destructive"
@@ -141,7 +157,7 @@ export default function ShortlistedCandidatesPage() {
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
-                                    </>
+                                    </div>
                                 }
                             />
 
@@ -170,6 +186,19 @@ export default function ShortlistedCandidatesPage() {
                 jobId={selectedJobId}
                 isOpen={isScheduleModalOpen}
                 onClose={() => setIsScheduleModalOpen(false)}
+                onScheduled={() => {
+                    toast({
+                        title: "Event Scheduled",
+                        description: "You can view the details in the Interviews tab.",
+                    });
+                    setIsScheduleModalOpen(false);
+                }}
+            />
+
+            <AssignTestModal
+                candidateId={selectedCandidateId}
+                isOpen={isAssignTestModalOpen}
+                onClose={() => setIsAssignTestModalOpen(false)}
             />
         </div>
     );

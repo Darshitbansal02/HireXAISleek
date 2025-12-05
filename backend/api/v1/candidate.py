@@ -176,14 +176,8 @@ async def get_my_applications(
         # AND the event must be created by the SAME recruiter who posted the job
         event = db.query(ScheduledEvent).filter(
             ScheduledEvent.candidate_id == profile.id,
-            ScheduledEvent.recruiter_id == job.recruiter_id, # Strict link to recruiter
-            or_(
-                ScheduledEvent.job_id == app.job_id,
-                and_(
-                    ScheduledEvent.job_id == None,
-                    ScheduledEvent.created_at >= app.applied_at
-                )
-            ),
+            ScheduledEvent.recruiter_id == job.recruiter_id,
+            ScheduledEvent.job_id == app.job_id,
             ScheduledEvent.status == "scheduled"
         ).order_by(ScheduledEvent.created_at.desc()).first()
         

@@ -10,7 +10,7 @@ import { CandidateCard } from "@/components/CandidateCard";
 import { AnalyticsChart } from "@/components/AnalyticsChart";
 import { AIChatbox } from "@/components/AIChatbox";
 import Link from "next/link";
-import { Search, Users, Briefcase, TrendingUp, Settings, LogOut, Sparkles, AlertCircle, BookmarkCheck } from "lucide-react";
+import { Search, Users, Briefcase, TrendingUp, Settings, LogOut, Sparkles, AlertCircle, BookmarkCheck, FileText, Video, Trash } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
@@ -19,13 +19,14 @@ import { MyJobsSection } from "@/components/MyJobsSection";
 import { CandidateProfileModal } from "@/components/CandidateProfileModal";
 import ShortlistedCandidatesSection from "./shortlisted/page";
 import { NotificationBell } from "@/components/NotificationBell";
+import { RecruiterInterviewsSection } from "@/components/RecruiterInterviewsSection";
 
 
 export default function RecruiterDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"search" | "post" | "myjobs" | "analytics" | "shortlisted">("search");
+  const [activeTab, setActiveTab] = useState<"search" | "post" | "myjobs" | "analytics" | "shortlisted" | "assessments" | "interviews">("search");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [jobDescription, setJobDescription] = useState("");
@@ -56,6 +57,10 @@ export default function RecruiterDashboard() {
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
+  // Assessments State
+  const [myTests, setMyTests] = useState<any[]>([]);
+  const [testsLoading, setTestsLoading] = useState(false);
+
   // Profile Modal State
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -84,6 +89,13 @@ export default function RecruiterDashboard() {
   useEffect(() => {
     if (activeTab === "myjobs" && isAuthenticated) {
       fetchMyJobs();
+    }
+  }, [activeTab, isAuthenticated]);
+
+  // Fetch tests when switching to "Assessments"
+  useEffect(() => {
+    if (activeTab === "assessments" && isAuthenticated) {
+      fetchMyTests();
     }
   }, [activeTab, isAuthenticated]);
 
@@ -280,6 +292,32 @@ export default function RecruiterDashboard() {
     }
   };
 
+  const fetchMyTests = async () => {
+    setTestsLoading(true);
+    try {
+      const data = await apiClient.getTests();
+      setMyTests(data || []);
+    } catch (err) {
+      console.error("Failed to fetch tests", err);
+    } finally {
+      setTestsLoading(false);
+    }
+  };
+
+  const handleDeleteTest = async (testId: string) => {
+    if (!confirm("Are you sure you want to delete this assessment? This action cannot be undone.")) return;
+
+    try {
+      await apiClient.deleteTest(testId);
+      setMyTests(prev => prev.filter(t => t.id !== testId));
+      setSuccess("Assessment deleted successfully");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err: any) {
+      console.error("Failed to delete test", err);
+      setError(err.message || "Failed to delete assessment");
+    }
+  };
+
   // --- FIX STARTS HERE (The handleSearch was broken in your snippet) ---
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -374,47 +412,46 @@ export default function RecruiterDashboard() {
           />
         </div>
 
-        <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
-          <Button
-            variant={activeTab === "search" ? "default" : "outline"}
-            onClick={() => setActiveTab("search")}
-            data-testid="tab-search"
-          >
-            <Search className="h-4 w-4 mr-2" />
-            Search Candidates
-          </Button>
-          <Button
-            variant={activeTab === "post" ? "default" : "outline"}
-            onClick={() => setActiveTab("post")}
-            data-testid="tab-post"
-          >
-            <Briefcase className="h-4 w-4 mr-2" />
-            Post Job
-          </Button>
-          <Button
-            variant={activeTab === "myjobs" ? "default" : "outline"}
-            onClick={() => setActiveTab("myjobs")}
-            data-testid="tab-myjobs"
-          >
-            <Briefcase className="h-4 w-4 mr-2" />
-            My Jobs
-          </Button>
-          <Button
-            variant={activeTab === "shortlisted" ? "default" : "outline"}
-            onClick={() => setActiveTab("shortlisted")}
-            data-testid="tab-shortlisted"
-          >
-            <BookmarkCheck className="mr-2 h-4 w-4" />
-            Shortlisted
-          </Button>
-          <Button
-            variant={activeTab === "analytics" ? "default" : "outline"}
-            onClick={() => setActiveTab("analytics")}
-            data-testid="tab-analytics"
-          >
-            <TrendingUp className="h-4 w-4 mr-2" />
-            Analytics
-          </Button>
+        {/* Enhanced Tabs Scroller */}
+        <div className="relative mb-8 group">
+          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-10 pointer-events-none md:hidden" />
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none md:hidden" />
+
+          <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory px-1">
+            {[
+              { id: "search", label: "Search Candidates", icon: Search },
+              { id: "post", label: "Post Job", icon: Briefcase },
+              { id: "myjobs", label: "My Jobs", icon: Briefcase },
+              { id: "shortlisted", label: "Shortlisted", icon: BookmarkCheck },
+              { id: "assessments", label: "Assessments", icon: FileText },
+              { id: "interviews", label: "Interviews", icon: Video },
+            ].map((tab) => (
+              <Button
+                key={tab.id}
+                variant={activeTab === tab.id ? "default" : "outline"}
+                onClick={() => setActiveTab(tab.id as any)}
+                data-testid={`tab-${tab.id}`}
+                className={`snap-start flex-shrink-0 transition-all duration-300 ${activeTab === tab.id
+                  ? "shadow-md shadow-primary/20 scale-105"
+                  : "hover:bg-primary/5 hover:border-primary/30"
+                  }`}
+              >
+                <tab.icon className="h-4 w-4 mr-2" />
+                {tab.label}
+              </Button>
+            ))}
+
+            <div className="w-px h-8 bg-border mx-2 hidden md:block" />
+
+            <Button
+              variant="outline"
+              onClick={() => router.push("/recruiter/tests/create")}
+              className="snap-start flex-shrink-0 border-primary/50 text-primary hover:bg-primary/10 hover:shadow-sm hover:shadow-primary/10"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Create Assessment
+            </Button>
+          </div>
         </div>
 
         {error && (
@@ -657,33 +694,57 @@ export default function RecruiterDashboard() {
           <ShortlistedCandidatesSection />
         )}
 
-        {activeTab === "analytics" && (
-          <div className="grid lg:grid-cols-2 gap-6">
-            <AnalyticsChart
-              title="Top Skills in Demand"
-              data={[
-                { name: "React", value: 45 },
-                { name: "Python", value: 38 },
-                { name: "AWS", value: 32 },
-                { name: "Docker", value: 28 },
-                { name: "Node.js", value: 25 },
-              ]}
-              type="bar"
-            />
-            <AnalyticsChart
-              title="Hiring Trends"
-              data={[
-                { name: "Jan", value: 12 },
-                { name: "Feb", value: 15 },
-                { name: "Mar", value: 18 },
-                { name: "Apr", value: 14 },
-                { name: "May", value: 22 },
-                { name: "Jun", value: 25 },
-              ]}
-              type="line"
-            />
+        {activeTab === "assessments" && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-2xl font-bold">My Assessments</h3>
+              <Button onClick={() => router.push("/recruiter/tests/create")}>
+                <FileText className="mr-2 h-4 w-4" /> Create New Assessment
+              </Button>
+            </div>
+
+            {testsLoading ? (
+              <div className="text-center py-8">Loading assessments...</div>
+            ) : myTests.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No assessments created yet.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {myTests.map((test) => (
+                  <Card key={test.id} className="hover:border-primary/50 transition-colors">
+                    <CardHeader>
+                      <CardTitle>{test.title}</CardTitle>
+                      <CardDescription>Duration: {test.duration_minutes} mins</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex justify-between items-center mt-4">
+                        <span className="text-xs text-muted-foreground">
+                          Created: {new Date(test.created_at).toLocaleDateString()}
+                        </span>
+                        <Button size="sm" variant="outline" onClick={() => router.push(`/recruiter/tests/${test.id}/results`)}>
+                          View Results
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDeleteTest(test.id)}>
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         )}
+
+        {activeTab === "interviews" && (
+          <RecruiterInterviewsSection />
+        )}
+
+
       </div>
 
       <AIChatbox />

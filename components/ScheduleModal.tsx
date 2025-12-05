@@ -37,15 +37,32 @@ export function ScheduleModal({ candidateId, jobId, isOpen, onClose, onScheduled
         try {
             const scheduledAt = new Date(`${date}T${time}`).toISOString();
 
-            await apiClient.scheduleEvent({
-                candidate_id: candidateId,
-                job_id: jobId,
-                event_type: eventType,
-                scheduled_at: scheduledAt,
-                mode: mode,
-                location_url: locationUrl,
-                notes: notes
-            });
+            if (eventType === 'interview' && mode === 'online') {
+                const token = localStorage.getItem("auth_token");
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/interview/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        candidate_id: candidateId,
+                        job_id: jobId || null, // Send null if no job ID
+                        scheduled_at: scheduledAt
+                    })
+                });
+                if (!res.ok) throw new Error("Failed to schedule interview");
+            } else {
+                await apiClient.scheduleEvent({
+                    candidate_id: candidateId,
+                    job_id: jobId,
+                    event_type: eventType,
+                    scheduled_at: scheduledAt,
+                    mode: mode,
+                    location_url: locationUrl,
+                    notes: notes
+                });
+            }
 
             toast({
                 title: "Scheduled Successfully",
@@ -128,19 +145,22 @@ export function ScheduleModal({ candidateId, jobId, isOpen, onClose, onScheduled
 
                     <div className="space-y-2">
                         <Label>{mode === 'online' ? 'Meeting Link' : 'Location Address'}</Label>
-                        <div className="relative">
-                            {mode === 'online' ? (
-                                <Video className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                            ) : (
+                        {mode === 'online' ? (
+                            <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground flex items-center gap-2">
+                                <Video className="h-4 w-4" />
+                                A secure video interview link will be automatically generated.
+                            </div>
+                        ) : (
+                            <div className="relative">
                                 <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                            )}
-                            <Input
-                                className="pl-9"
-                                placeholder={mode === 'online' ? "https://meet.google.com/..." : "123 Office St, Room 4B"}
-                                value={locationUrl}
-                                onChange={(e) => setLocationUrl(e.target.value)}
-                            />
-                        </div>
+                                <Input
+                                    className="pl-9"
+                                    placeholder="123 Office St, Room 4B"
+                                    value={locationUrl}
+                                    onChange={(e) => setLocationUrl(e.target.value)}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-2">

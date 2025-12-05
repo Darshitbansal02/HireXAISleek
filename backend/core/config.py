@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
 
+    # Test System Configuration
+    TESTS_AES_KEY: Optional[str] = None
+    JUDGE0_API_URL: str = "https://judge0-ce.p.rapidapi.com"
+    JUDGE0_API_KEY: Optional[str] = None
+
     # File Uploads
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_SIZE: int = 5 * 1024 * 1024  # 5MB
@@ -77,3 +82,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=env_path, case_sensitive=True, extra="ignore")
 
 settings = Settings()
+
+# Debug Logging
+print(f"[DEBUG] Loading config from: {env_path}")
+print(f"[DEBUG] GROQ_API_KEY Loaded: {bool(settings.GROQ_API_KEY)}")
+print(f"[DEBUG] TESTS_AES_KEY Loaded: {bool(settings.TESTS_AES_KEY)}")
+
+if not settings.TESTS_AES_KEY:
+    print("[WARNING] TESTS_AES_KEY not found in .env. Generating a temporary one for dev.")
+    import secrets
+    import base64
+    # Generate 32 random bytes and base64 encode them
+    settings.TESTS_AES_KEY = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')

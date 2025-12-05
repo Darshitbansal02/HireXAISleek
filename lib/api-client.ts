@@ -138,6 +138,7 @@ class ApiClient {
 
             const userResponse = await this.client.get("/v1/auth/me");
             const user = userResponse.data;
+            console.log("[DEBUG] Login response user:", user);
 
             if (typeof window !== "undefined") {
                 localStorage.setItem("user", JSON.stringify(user));
@@ -684,6 +685,24 @@ Use this exact schema:
         }
     }
 
+    async getInterviewDetails(roomId: string) {
+        try {
+            const response = await this.client.get(`/v1/interview/${roomId}`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async delete(url: string) {
+        try {
+            const response = await this.client.delete(url);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
     private handleError(error: any): ApiError {
         if (axios.isAxiosError(error)) {
             const status = error.response?.status || 500;
@@ -708,6 +727,190 @@ Use this exact schema:
         }
         return { status: 500, message: error.message || "An unexpected error occurred" };
     }
+    // --- Test System Methods ---
+
+    async createTest(data: any) {
+        try {
+            const response = await this.client.post("/v1/recruiter/tests/", data);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async getTests() {
+        try {
+            const response = await this.client.get("/v1/recruiter/tests/");
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async getTest(testId: string) {
+        try {
+            const response = await this.client.get(`/v1/recruiter/tests/${testId}`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async deleteTest(testId: string) {
+        try {
+            const response = await this.client.delete(`/v1/recruiter/tests/${testId}`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async generateQuestion(testId: string, params: { topic: string; difficulty: string; language: string; type?: string; sample_count?: number; hidden_count?: number; count?: number }) {
+        try {
+            const response = await this.client.post(`/v1/recruiter/tests/${testId}/generate-question`, null, { params });
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async addQuestion(testId: string, data: any) {
+        try {
+            const response = await this.client.post(`/v1/recruiter/tests/${testId}/questions`, data);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async assignTest(testId: string, candidateIds: number[], expiresAt?: string, scheduledAt?: string) {
+        try {
+            const response = await this.client.post(`/v1/recruiter/tests/${testId}/assign`, {
+                test_id: testId, // Redundant but safe
+                candidate_ids: candidateIds,
+                expires_at: expiresAt,
+                scheduled_at: scheduledAt
+            });
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async getTestAssignments(testId: string) {
+        try {
+            const response = await this.client.get(`/v1/recruiter/tests/${testId}/assignments`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async runTest(assignmentId: string, payload: { question_id: string; code: string; language: string }) {
+        try {
+            const response = await this.client.post(`/v1/candidate/assignments/${assignmentId}/run`, payload);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+
+    async getAssignmentDetailRecruiter(assignmentId: string) {
+        try {
+            const response = await this.client.get(`/v1/recruiter/assignments/${assignmentId}`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async listAssignments() {
+        try {
+            const response = await this.client.get("/v1/candidate/assignments/");
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async getAssignment(assignmentId: string) {
+        try {
+            const response = await this.client.get(`/v1/candidate/assignments/${assignmentId}`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async startTest(assignmentId: string) {
+        try {
+            const response = await this.client.post(`/v1/candidate/assignments/${assignmentId}/start`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async saveDraft(assignmentId: string, data: { question_id: string; code: string; language: string }) {
+        try {
+            const response = await this.client.patch(`/v1/candidate/assignments/${assignmentId}/draft`, data);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async finishTest(assignmentId: string) {
+        try {
+            const response = await this.client.post(`/v1/candidate/assignments/${assignmentId}/finish`);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async submitTest(assignmentId: string, data: { question_id: string; code: string; language: string }) {
+        try {
+            const response = await this.client.post(`/v1/candidate/assignments/${assignmentId}/submit`, data);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async logProctorEvent(assignmentId: string, eventType: string, payload: any = {}) {
+        try {
+            const response = await this.client.post("/v1/proctoring/log", {
+                assignment_id: assignmentId,
+                event_type: eventType,
+                payload: payload
+            }, {
+                params: { assignment_id: assignmentId }
+            });
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async uploadSnapshot(assignmentId: string, file: File) {
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const response = await this.client.post(`/v1/proctoring/upload-snapshot`, formData, {
+                params: { assignment_id: assignmentId },
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+
 }
 
 export const apiClient = new ApiClient();

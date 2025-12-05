@@ -55,4 +55,5 @@ async def register_user(
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user = Depends(get_current_user)):
+    print(f"[DEBUG] /me endpoint called. User: {current_user.email}, Role: {current_user.role}")
     return current_user

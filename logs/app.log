@@ -42,3 +42,4 @@
 2025-11-30 18:09:25 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
 2025-11-30 18:16:59 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
 2025-11-30 18:36:36 | INFO     | main:startup_event:120 - 🚀 HireXAI Backend Started Successfully
+2025-12-04 22:29:27 | WARNING  | services.judge_service:__init__:28 - JUDGE0_API_KEY is not set. JudgeService will fail for real execution.

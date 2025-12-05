@@ -14,7 +14,7 @@ import { SavedJobs } from "@/components/SavedJobs";
 import { RecommendedJobs } from "@/components/RecommendedJobs";
 import { AnalyticsChart } from "@/components/AnalyticsChart";
 import Link from "next/link";
-import { FileText, Briefcase, TrendingUp, Settings, LogOut, Loader, Bookmark, Sparkles } from "lucide-react";
+import { FileText, Briefcase, TrendingUp, Settings, LogOut, Loader, Bookmark, Sparkles, Video, Clock, Play } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { apiClient } from "@/lib/api-client";
 import { JobDetailModal, Job } from "@/components/JobDetailModal";
@@ -22,6 +22,7 @@ import { ProfileSection } from "@/components/ProfileSection";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertCircle, ArrowRight } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function CandidateDashboard() {
     const router = useRouter();
@@ -40,6 +41,8 @@ export default function CandidateDashboard() {
     });
 
     const [profileCompletion, setProfileCompletion] = useState<any>(null);
+    const [scheduledInterviews, setScheduledInterviews] = useState<any[]>([]);
+    const [assignedTests, setAssignedTests] = useState<any[]>([]);
 
     const [appliedJobs, setAppliedJobs] = useState<Set<number>>(new Set());
     const [applyingJobs, setApplyingJobs] = useState<Set<number>>(new Set());
@@ -67,8 +70,34 @@ export default function CandidateDashboard() {
             fetchJobs();
             fetchStats();
             fetchProfileCompletion();
+            fetchInterviews();
+            fetchTests();
         }
     }, [isAuthenticated, user, activeTab]);
+
+    const fetchInterviews = async () => {
+        try {
+            const token = localStorage.getItem("auth_token");
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/interview/my-interviews`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setScheduledInterviews(data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch interviews", err);
+        }
+    };
+
+    const fetchTests = async () => {
+        try {
+            const data = await apiClient.listAssignments();
+            setAssignedTests(data || []);
+        } catch (err) {
+            console.error("Failed to fetch tests", err);
+        }
+    };
 
     const fetchProfileCompletion = async () => {
         try {
@@ -332,6 +361,117 @@ export default function CandidateDashboard() {
                             <Button size="lg" onClick={() => router.push("/candidate/builder")} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20">
                                 Start Building Now
                             </Button>
+                        </div>
+
+                        {/* Scheduled Interviews & Tests */}
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Video className="h-5 w-5 text-primary" />
+                                        Scheduled Interviews
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    {scheduledInterviews.length === 0 ? (
+                                        <p className="text-muted-foreground text-sm">No upcoming interviews.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {scheduledInterviews
+                                                .filter(interview => interview.status !== 'completed')
+                                                .map((interview) => {
+                                                    const scheduledDate = new Date(interview.scheduled_at);
+                                                    const now = new Date();
+                                                    const timeDiff = scheduledDate.getTime() - now.getTime();
+                                                    // Allow joining 5 minutes before
+                                                    const canJoin = timeDiff <= 5 * 60 * 1000;
+
+                                                    return (
+                                                        <div key={interview.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                                                            <div>
+                                                                <p className="font-medium">Interview</p>
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    {scheduledDate.toLocaleString(undefined, {
+                                                                        dateStyle: 'medium',
+                                                                        timeStyle: 'short'
+                                                                    })}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                {!canJoin && (
+                                                                    <span className="text-[10px] text-muted-foreground hidden sm:inline-block">
+                                                                        Available 5m before
+                                                                    </span>
+                                                                )}
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={() => router.push(`/candidate/interview/${interview.room_id}`)}
+                                                                    disabled={!canJoin}
+                                                                    title={!canJoin ? "You can join 5 minutes before the scheduled time" : "Join Meeting"}
+                                                                >
+                                                                    Join
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <FileText className="h-5 w-5 text-primary" />
+                                        Assigned Assessments
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    {assignedTests.length === 0 ? (
+                                        <p className="text-muted-foreground text-sm">No pending assessments.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {assignedTests.map((test) => {
+                                                const isExpired = test.expires_at && new Date(test.expires_at) < new Date();
+                                                const isLate = test.scheduled_at && new Date(test.scheduled_at) < new Date() && test.status === 'pending';
+
+                                                return (
+                                                    <div key={test.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                                                        <div>
+                                                            <p className="font-medium">{test.test?.title || "Untitled Test"}</p>
+                                                            <div className="flex gap-2 text-xs text-muted-foreground">
+                                                                <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {test.test?.duration_minutes || 0}m</span>
+                                                                <span>•</span>
+                                                                <span className={`capitalize ${isExpired ? 'text-destructive font-bold' : ''}`}>
+                                                                    {isExpired ? 'Expired' : test.status.replace('_', ' ')}
+                                                                </span>
+                                                                {isLate && !isExpired && (
+                                                                    <span className="text-orange-500 font-medium">• Late Start (Time Reduced)</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        {test.status === 'pending' && !isExpired && (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => router.push(`/candidate/test/${test.id}`)}
+                                                                variant={isLate ? "secondary" : "default"}
+                                                            >
+                                                                <Play className="h-3 w-3 mr-1" /> {isLate ? "Start Now" : "Start"}
+                                                            </Button>
+                                                        )}
+                                                        {isExpired && (
+                                                            <Button size="sm" variant="ghost" disabled className="text-destructive">
+                                                                Expired
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
                         </div>
 
                         <div className="grid md:grid-cols-3 gap-6">

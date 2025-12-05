@@ -17,20 +17,10 @@ if settings.GEMINI_API_KEY:
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
 # -----------------------------
-#  PRIMARY MODEL — MiniLM (384d)
+#  PRIMARY MODEL — Gemini (768d)
 # -----------------------------
-_PRIMARY_MODEL = None
-try:
-    from sentence_transformers import SentenceTransformer
-    logger.info("Loading SentenceTransformer model: all-MiniLM-L6-v2...")
-    _PRIMARY_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    logger.info("SentenceTransformer loaded successfully.")
-except Exception as e:
-    logger.error(f"Failed to load SentenceTransformer: {e}")
-    logger.warning("Fallback will rely on Gemini if available.")
 
-
-# Normalize vectors (for Gemini fallback)
+# Normalize vectors
 def _normalize(vec):
     if not vec:
         return []
@@ -42,29 +32,18 @@ def _normalize(vec):
 
 
 # ------------------------------------------------------
-#  HYBRID EMBEDDING PIPELINE (MiniLM primary, Gemini fallback)
+#  EMBEDDING PIPELINE (Gemini Only)
 # ------------------------------------------------------
 def generate_embedding(text: str) -> list[float]:
     """
-    PRIMARY → MiniLM (384d)
-    FALLBACK → Gemini (768d)
+    Generates 768-dimensional embeddings using Gemini.
     """
     if not text or not text.strip():
         return []
 
-    # --- PRIMARY: MiniLM ---
-    if _PRIMARY_MODEL:
-        try:
-            logger.debug("Generating embedding using MiniLM...")
-            emb = _PRIMARY_MODEL.encode(text, normalize_embeddings=True)
-            return emb.tolist()  # 384-D vector
-        except Exception as e:
-            logger.error(f"MiniLM failed: {e}")
-
-    # --- FALLBACK: GEMINI ---
     if settings.GEMINI_API_KEY:
         try:
-            logger.info("Using Gemini fallback embeddings...")
+            # logger.debug("Generating embedding using Gemini...")
             result = genai.embed_content(
                 model="models/text-embedding-004",
                 content=text,
@@ -73,12 +52,11 @@ def generate_embedding(text: str) -> list[float]:
             emb = result.get("embedding", [])
             return _normalize(emb)  # Normalize 768-D vector
         except Exception as e:
-            logger.error(f"Gemini Error: {e}")
+            logger.error(f"Gemini Embedding Error: {e}")
+            return []
     else:
-        logger.warning("GEMINI_API_KEY not set. Cannot fallback to Gemini.")
-
-    logger.critical("❌ All embedding methods failed.")
-    return []
+        logger.warning("GEMINI_API_KEY not set. Cannot generate embeddings.")
+        return []
 
 
 # -------------------------
