@@ -13,6 +13,17 @@ from models.scheduled_event import ScheduledEvent
 from schemas.application import ApplicationResponse
 from schemas.candidate_profile import CandidateProfileResponse, CandidateProfileCreate, CandidateProfileUpdate, ProfileCompletion, CompletionItem
 from datetime import datetime
+import mimetypes
+import uuid
+import httpx
+from fastapi.responses import StreamingResponse
+from supabase import create_client, Client
+from core.config import settings
+
+# Initialize Supabase Client
+supabase: Client = None
+if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
 router = APIRouter()
 
@@ -297,16 +308,12 @@ async def get_recommended_jobs(
     jobs = db.query(Job).filter(Job.is_active == True).order_by(Job.created_at.desc()).limit(5).all()
     return {"jobs": jobs}
 
-# Resume Management Endpoints
+# Resume Management Endpoints (Refactored for Supabase)
 import shutil
 import os
 from fastapi.responses import FileResponse
 from pypdf import PdfReader
-
-# Use absolute path for uploads to avoid CWD issues
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "resumes")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+from io import BytesIO
 
 @router.post("/resume/upload")
 async def upload_resume(
@@ -318,28 +325,62 @@ async def upload_resume(
     if not file.filename.lower().endswith(('.pdf', '.docx', '.txt')):
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, DOCX, and TXT are allowed.")
     
-    # Save file
-    file_path = os.path.join(UPLOAD_DIR, f"{current_user.id}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Check if Supabase is configured
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Storage service not configured")
         
-    # Update profile
-    profile = get_profile_by_user_id(db, current_user.id)
-    if not profile:
-        profile = CandidateProfile(user_id=current_user.id)
-        db.add(profile)
+    bucket_name = settings.SUPABASE_STORAGE_BUCKET
+    file_ext = mimetypes.guess_extension(file.content_type) or ".pdf"
+    file_name = f"{current_user.id}/{uuid.uuid4()}{file_ext}"
     
-    profile.resume_url = file_path 
-    profile.resume_preview = file.filename
-    # Reset analysis when new resume is uploaded
-    profile.resume_score = None
-    profile.resume_analysis = None
-    profile.resume_summary = None
-    profile.resume_text = None
-    
-    db.commit()
-    
-    return {"filename": file.filename, "url": file_path}
+    try:
+        # Read file content
+        file_content = await file.read()
+        
+        # Upload to Supabase
+        res = supabase.storage.from_(bucket_name).upload(
+            path=file_name,
+            file=file_content,
+            file_options={"content-type": file.content_type}
+        )
+        
+        # Get Public URL
+        public_url_resp = supabase.storage.from_(bucket_name).get_public_url(file_name)
+        # Handle string or object response
+        public_url = public_url_resp if isinstance(public_url_resp, str) else public_url_resp.public_url
+
+        # Update CandidateProfile
+        profile = get_profile_by_user_id(db, current_user.id)
+        if not profile:
+            profile = CandidateProfile(user_id=current_user.id)
+            db.add(profile)
+        
+        profile.resume_url = public_url
+        profile.resume_preview = file.filename
+        
+        # Reset analysis fields
+        profile.resume_score = None
+        profile.resume_analysis = None
+        profile.resume_summary = None
+        profile.resume_text = None
+        
+        # Also create/update Resume table for history/consistency
+        new_resume = Resume(
+            candidate_id=current_user.id,
+            title=file.filename,
+            file_url=public_url,
+            is_primary=True,
+            version=1
+        )
+        db.add(new_resume)
+        
+        db.commit()
+        
+        return {"filename": file.filename, "url": public_url}
+        
+    except Exception as e:
+        print(f"[Upload Error] {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @router.get("/resume/file")
 async def get_resume_file(
@@ -350,15 +391,18 @@ async def get_resume_file(
     if not profile or not profile.resume_url:
         raise HTTPException(status_code=404, detail="Resume not found")
         
-    if not os.path.exists(profile.resume_url):
-        # Fallback check for relative paths if DB has old data
-        if not os.path.isabs(profile.resume_url):
-             abs_path = os.path.join(BASE_DIR, profile.resume_url)
-             if os.path.exists(abs_path):
-                 return FileResponse(abs_path, filename=profile.resume_preview or "resume.pdf", media_type="application/pdf")
-
-        raise HTTPException(status_code=404, detail="Resume file not found on server")
-        
+    # Check if remote URL (Supabase)
+    if profile.resume_url.startswith("http"):
+        # Proxy the file from Supabase
+        async def iterfile():
+            async with httpx.AsyncClient() as client:
+                async with client.stream("GET", profile.resume_url) as response:
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+                        
+        return StreamingResponse(iterfile(), media_type="application/pdf")
+    
+    # Fallback for legacy local files (should be removed eventually)
     return FileResponse(profile.resume_url, filename=profile.resume_preview or "resume.pdf", media_type="application/pdf")
 
 @router.delete("/resume")
@@ -368,12 +412,24 @@ async def delete_resume(
 ):
     profile = get_profile_by_user_id(db, current_user.id)
     if profile and profile.resume_url:
-        # Try to delete file
-        if os.path.exists(profile.resume_url):
+        # Try to delete from Supabase if it's a URL
+        if profile.resume_url.startswith("http") and supabase:
+            try:
+                # Extract path from URL (naive approach, better to store path)
+                # URL: https://.../storage/v1/object/public/resumes/USER_ID/UUID.pdf
+                # Path: USER_ID/UUID.pdf
+                # We can try to extract it from the URL structure or just extract the filename if we know it
+                path = profile.resume_url.split(f"/{settings.SUPABASE_STORAGE_BUCKET}/")[-1]
+                supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).remove([path])
+            except Exception as e:
+                print(f"Error deleting from Supabase: {e}")
+        
+        # Fallback local delete
+        elif profile.resume_url and os.path.exists(profile.resume_url):
             try:
                 os.remove(profile.resume_url)
-            except Exception as e:
-                print(f"Error deleting file: {e}")
+            except:
+                pass
                 
         profile.resume_url = None
         profile.resume_preview = None
@@ -394,19 +450,32 @@ async def extract_resume_text(
     if not profile or not profile.resume_url:
         raise HTTPException(status_code=404, detail="Resume not found")
         
-    if not os.path.exists(profile.resume_url):
-        raise HTTPException(status_code=404, detail="Resume file not found")
-        
     text = ""
     try:
-        if profile.resume_url.lower().endswith('.pdf'):
-            reader = PdfReader(profile.resume_url)
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
+        # Handle remote URL
+        if profile.resume_url.startswith("http"):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(profile.resume_url)
+                file_bytes = BytesIO(resp.content)
+                
+                if profile.resume_url.lower().endswith('.pdf'):
+                    reader = PdfReader(file_bytes)
+                    for page in reader.pages:
+                        text += page.extract_text() + "\n"
+                else:
+                    text = file_bytes.read().decode('utf-8', errors='ignore')
+
+        # Fallback local
+        elif os.path.exists(profile.resume_url):
+             if profile.resume_url.lower().endswith('.pdf'):
+                reader = PdfReader(profile.resume_url)
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+             else:
+                with open(profile.resume_url, 'r', errors='ignore') as f:
+                    text = f.read()
         else:
-            # Basic text fallback
-            with open(profile.resume_url, 'r', errors='ignore') as f:
-                text = f.read()
+            raise HTTPException(status_code=404, detail="File not found")
         
         # Save extracted text to DB
         profile.resume_text = text
