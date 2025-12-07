@@ -57,6 +57,13 @@ export default function CandidateDashboard() {
     const [showIncompleteModal, setShowIncompleteModal] = useState(false);
     const [missingSections, setMissingSections] = useState<string[]>([]);
 
+    // Live Dashboard Clock (Global for all items)
+    const [now, setNow] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
     // Protect route - redirect if not candidate
     useEffect(() => {
         if (!authLoading && (!isAuthenticated || user?.role !== "candidate")) {
@@ -427,8 +434,8 @@ export default function CandidateDashboard() {
                                     ) : (
                                         <div className="space-y-4">
                                             {assignedTests.map((test) => {
-                                                const scheduledDate = test.scheduled_at ? new Date(test.scheduled_at) : null;
-                                                const now = new Date();
+
+                                                const scheduledDate = test.scheduled_at ? new Date(test.scheduled_at.endsWith('Z') ? test.scheduled_at : test.scheduled_at + 'Z') : null;
                                                 const isExpired = test.expires_at && new Date(test.expires_at) < now;
                                                 const isFuture = scheduledDate && scheduledDate > now;
                                                 const isLate = scheduledDate && scheduledDate < now && test.status === 'pending';
@@ -439,10 +446,11 @@ export default function CandidateDashboard() {
                                                 const canResume = test.status === 'started' && attempts < maxAttempts;
                                                 const isMaxAttempts = test.status === 'started' && attempts >= maxAttempts;
 
-                                                // Countdown Logic (Simple inline text for now, could be a component)
+                                                // Countdown Logic
                                                 const timeUntilStart = isFuture ? (scheduledDate!.getTime() - now.getTime()) : 0;
                                                 const hoursUntil = Math.floor(timeUntilStart / (1000 * 60 * 60));
                                                 const minutesUntil = Math.floor((timeUntilStart % (1000 * 60 * 60)) / (1000 * 60));
+                                                const secondsUntil = Math.floor((timeUntilStart % (1000 * 60)) / 1000);
 
                                                 return (
                                                     <div key={test.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -461,8 +469,8 @@ export default function CandidateDashboard() {
                                                                     <span className="text-blue-500 font-medium">• {maxAttempts - attempts} attempts left</span>
                                                                 )}
                                                                 {isFuture && (
-                                                                    <span className="text-indigo-500 font-bold flex items-center gap-1">
-                                                                        • Starts in {hoursUntil}h {minutesUntil}m
+                                                                    <span className="text-indigo-500 font-bold flex items-center gap-1 font-mono">
+                                                                        • Starts in {hoursUntil}h {minutesUntil}m {secondsUntil}s
                                                                     </span>
                                                                 )}
                                                             </div>

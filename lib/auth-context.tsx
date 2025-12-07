@@ -28,18 +28,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
-  // Initialize auth state from in-memory session (no localStorage)
-  // NOTE: Auth session is lost on page refresh. Users must login again.
-  // This is by design for security (no sensitive tokens stored persistently).
+  // Initialize auth state from localStorage to prevent logout on refresh
   useEffect(() => {
-    if (mountedRef.current) {
-      setIsLoading(false);
-    }
+    const initAuth = async () => {
+      if (typeof window !== "undefined") {
+        const token = localStorage.getItem("auth_token");
+
+        if (token) {
+          try {
+            // Restore token to API Client
+            apiClient.setToken(token);
+
+            // Fetch user details to confirm validity and get Role
+            // This prevents the "Redirect to Login" issue on refresh
+            const userData = await apiClient.getCurrentUser();
+
+            if (mountedRef.current) {
+              setUser(userData);
+            }
+          } catch (e) {
+            console.error("Session restore failed", e);
+            // If token is invalid/expired, clear it
+            apiClient.clearAuth();
+            localStorage.removeItem("auth_token");
+          }
+        }
+      }
+
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
     if (!mountedRef.current) return Promise.reject("Component unmounted");
-    
+
     setIsLoading(true);
     setError(null);
     try {
@@ -63,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (email: string, password: string, fullName: string, role: "candidate" | "recruiter") => {
     if (!mountedRef.current) return Promise.reject("Component unmounted");
-    
+
     setIsLoading(true);
     setError(null);
     try {

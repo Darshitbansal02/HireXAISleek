@@ -429,6 +429,31 @@ async def schedule_event(
     db.commit()
     db.refresh(event)
 
+    # --- SYNC WITH TEST ASSIGNMENT ---
+    # If Recruiter schedules a "test", we must block the actual TestAssignment
+    if event.event_type == "test" and event.job_id:
+        try:
+            from models.test_system import TestAssignment, Test as TestModel
+            # Find assignment for this candidate and job
+            # candidate_profile.user_id is the Account ID used in TestAssignment
+            assignments = db.query(TestAssignment).join(TestModel).filter(
+                TestAssignment.candidate_id == candidate_profile.user_id,
+                TestModel.job_id == event.job_id,
+                TestAssignment.status == "pending"
+            ).all()
+            
+            if assignments:
+                for assignment in assignments:
+                    assignment.scheduled_at = event.scheduled_at
+                    print(f"[DEBUG] Synced TestAssignment {assignment.id} schedule to {event.scheduled_at}")
+                db.commit()
+            else:
+                print(f"[DEBUG] No pending TestAssignment found for candidate {candidate_profile.user_id} and job {event.job_id} to sync schedule.")
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to sync TestAssignment schedule: {e}")
+            # Do not fail the request, just log it
+
     # Create Notification for Candidate
     try:
         # Format date for message

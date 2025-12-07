@@ -38,7 +38,7 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     onTerminate
 }) => {
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [warnings, setWarnings] = useState<string[]>([]);
+    // Removed local warnings array. Using backend-synced warningCount.
     const webcamRef = useRef<Webcam>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isCameraReady, setIsCameraReady] = useState(false);
@@ -50,7 +50,34 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     const [obscureMessage, setObscureMessage] = useState({ title: "Security Violation", subtitle: "Screenshot Attempt Detected" });
     const obscureOverlayRef = useRef<HTMLDivElement>(null);
 
-    const triggerObscure = useCallback((instant = true, title = "Security Violation", subtitle = "Screenshot Attempt Detected") => {
+    // Transient Warning Box State
+    const [currentWarning, setCurrentWarning] = useState<string | null>(null);
+
+    // Auto-dismiss warning box
+    useEffect(() => {
+        if (!currentWarning) return;
+        const timer = setTimeout(() => setCurrentWarning(null), 5000);
+        return () => clearTimeout(timer);
+    }, [currentWarning]);
+
+    // Lockout State
+    const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
+    const [timeLeft, setTimeLeft] = useState(0);
+
+    // Countdown Timer
+    useEffect(() => {
+        if (!lockoutUntil) return;
+        const interval = setInterval(() => {
+            const remaining = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
+            setTimeLeft(remaining);
+            if (remaining <= 0) {
+                setLockoutUntil(null);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [lockoutUntil]);
+
+    const triggerObscure = useCallback((instant = true, title = "Security Violation", subtitle = "Screenshot Attempt Detected", lockoutSteps = 0) => {
         // Direct DOM manipulation for instant feedback
         document.body.classList.add('security-violation');
 
@@ -59,16 +86,24 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         }
         setObscureMessage({ title, subtitle });
         setIsObscured(true);
+
+        // Apply Lockout if requested (e.g. for Screenshots)
+        if (lockoutSteps > 0) {
+            setLockoutUntil(Date.now() + lockoutSteps);
+            setTimeLeft(Math.ceil(lockoutSteps / 1000));
+        }
     }, []);
 
     const releaseObscure = useCallback(() => {
+        if (lockoutUntil && Date.now() < lockoutUntil) return; // Enforce Lockout
+
         setIsObscured(false);
         document.body.classList.remove('security-violation');
 
         if (obscureOverlayRef.current) {
             obscureOverlayRef.current.style.display = 'none';
         }
-    }, []);
+    }, [lockoutUntil]);
 
     // Restored Logic
     const [isSettingUpScreenShare, setIsSettingUpScreenShare] = useState(false);
@@ -82,32 +117,35 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         return () => clearTimeout(timer);
     }, []);
 
-    // --- Violation Handler ---
+    // --- Backend Synced State ---
+    const [warningCount, setWarningCount] = useState(0);
+
+    // Initial Sync
+    useEffect(() => {
+        const fetchStatus = async () => {
+            try {
+                const status = await apiClient.getProctorEventsStatus(assignmentId);
+                setWarningCount(status.warning_count);
+                if (status.terminated) {
+                    onTerminate && onTerminate();
+                }
+            } catch (e) {
+                console.error("Failed to sync proctor status", e);
+            }
+        };
+        fetchStatus();
+    }, [assignmentId, onTerminate]);
+
+
+    // --- Violation Handler (Backend Authoritative) ---
     const handleViolation = useCallback(async (type: string, message: string, extraPayload: any = {}) => {
-        // Allow immediate violation logging regardless of grace period for specific critical events if needed, 
-        // but guarding general ones is fine.
+        // Skip logs during grace period (except devtools which are critical)
         if (gracePeriod && type !== 'devtools_attempt') return;
 
-        setWarnings(prev => {
-            if (prev.includes(message)) return prev;
-
-            const newWarnings = [...prev, message];
-
-            // CRITICAL: Immediate check and action
-            if (onTerminate && newWarnings.length >= maxWarnings) {
-                // Execute immediately, don't wait for render cycle
-                setTimeout(() => onTerminate(), 0);
-            }
-
-            return newWarnings;
-        });
-
+        // Optimistic UI update for immediate feedback (optional, but good UX)
         toast.warning(message, { duration: 3000 });
+        setCurrentWarning(message); // Trigger Red Box
         onViolation(type);
-
-        setTimeout(() => {
-            setWarnings(prev => prev.filter(w => w !== message));
-        }, 5000);
 
         try {
             const response = await apiClient.logProctorEvent(assignmentId, type, {
@@ -116,13 +154,19 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                 ...extraPayload
             });
 
-            if (response && response.terminated) {
-                setTimeout(() => onTerminate && onTerminate(), 0);
+            // Authoritative Update from Backend
+            if (response) {
+                setWarningCount(response.warning_count);
+
+                if (response.terminated) {
+                    // Immediate Termination Trigger
+                    setTimeout(() => onTerminate && onTerminate(), 0);
+                }
             }
         } catch (error) {
             console.error("Failed to log violation:", error);
         }
-    }, [assignmentId, onViolation, gracePeriod, maxWarnings, onTerminate]);
+    }, [assignmentId, onViolation, gracePeriod, onTerminate]);
 
     // Use System Integrity Hook
     const { isCompromised } = useSystemIntegrity({
@@ -175,18 +219,21 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
 
         const handleScreenshotAttempt = () => {
             // CRITICAL: Block IMMEDIATELY using Ref for speed
-            triggerObscure(true, "Security Violation", "Screenshot Attempt Detected");
+            // ENFORCE 5s LOCKOUT to defeat delayed capture tools (Snipping Tool)
+            triggerObscure(true, "Security Violation", "Screenshot Attempt Detected", 5000);
 
             handleViolation("screenshot_attempt", "Screenshots are prohibited.");
 
             // Clear clipboard aggressively
             if (navigator.clipboard) {
-                navigator.clipboard.writeText("Screenshot Prohibited - Violation Logged").catch(() => { });
+                const clearClip = () => navigator.clipboard.writeText("Screenshot Prohibited - Violation Logged").catch(() => { });
+                clearClip();
+                // Extended clearing loop for race conditions
+                const clipInterval = setInterval(clearClip, 100);
+                setTimeout(() => clearInterval(clipInterval), 2000);
             }
 
-            // PERMANENT BLOCK until Manual Dismiss (Like DevTools)
-            // We do NOT auto-release. The user must click "I Acknowledge" on the overlay.
-            // This prevents rapid-fire screenshot attempts.
+            // PERMANENT BLOCK until Manual Dismiss (with Penalty Time)
         };
 
         const handleCopyCutPaste = (e: ClipboardEvent) => {
@@ -224,11 +271,14 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         };
 
         // KeyUp Listener to clear clipboard recursively if PrintScreen was held
+        // Also acts as a fallback if KeyDown was consumed by OS
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
                 if (navigator.clipboard) {
                     navigator.clipboard.writeText("Protected").catch(() => { });
                 }
+                // Fallback triggering if logic missed it (e.g. Win+PtrScr race condition)
+                handleScreenshotAttempt();
             }
         }
 
@@ -250,44 +300,75 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     }, [handleViolation, isFullscreen, permissionsGranted, isSharing, triggerObscure, releaseObscure]);
 
     // --- Tab Switching & Blur ---
+    // Valid Ref for tracking visible blur timeout
+    const visibleBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // --- Tab Switching & Blur ---
     useEffect(() => {
         if (!isFullscreen || !permissionsGranted) return;
 
         const handleVisibilityChange = () => {
             if (document.hidden) {
-                triggerObscure(true);
+                // IMMEDIATE critical violation for Alt-Tab/Minimizing
+                // Clear any pending "visible blur" check since we know it's a hide
+                if (visibleBlurTimeoutRef.current) {
+                    clearTimeout(visibleBlurTimeoutRef.current);
+                    visibleBlurTimeoutRef.current = null;
+                }
+
+                triggerObscure(true, "Security Violation", "Tab Switching Detected");
+                handleViolation("tab_switch", "You switched tabs or minimized the browser.");
                 lastBlurTime.current = Date.now();
             } else {
-                // Determine if we should reveal immediately or if checking logic is needed
-                // For now, we reveal, but the violation might persist if logic downstream triggers
+                // Returned to visibility
             }
         };
 
         const handleBlur = () => {
-            // CRITICAL: Block immediately on blur (e.g. Snipping Tool activation)
-            triggerObscure(true, "Focus Lost", "Tab Switching / Application Switch Detected");
-
-            if (!document.hidden && !lastBlurTime.current) {
-                lastBlurTime.current = Date.now();
+            // Split Logic: Hidden (Alt-Tab) vs Visible (Clicking Browser UI/Overlay)
+            if (document.hidden) {
+                // Case A: Hidden -> Immediate Block
+                triggerObscure(true, "Focus Lost", "Tab Switching Detected");
+                if (!lastBlurTime.current) lastBlurTime.current = Date.now();
+            } else {
+                // Case B: Visible (e.g., "Stop Sharing" bar, Second Monitor) -> Delayed Check
+                // Reduced buffer to 500ms for "Immediate" feel while safe-guarding "Hide" click
+                if (!visibleBlurTimeoutRef.current) {
+                    visibleBlurTimeoutRef.current = setTimeout(() => {
+                        triggerObscure(true, "Focus Lost", "External Application / Interaction Detected");
+                        if (!lastBlurTime.current) lastBlurTime.current = Date.now();
+                    }, 500); // 0.5 second buffer - Snappy but safe for UI clicks
+                }
             }
         };
 
         const handleFocus = () => {
-            releaseObscure(); // Restore visibility
+            // 1. Clear any pending "Visible Blur" violation
+            if (visibleBlurTimeoutRef.current) {
+                clearTimeout(visibleBlurTimeoutRef.current);
+                visibleBlurTimeoutRef.current = null;
+            }
 
+            // 2. Handle actual logged blurs
             if (lastBlurTime.current) {
                 const duration = (Date.now() - lastBlurTime.current) / 1000;
-                if (isSharing) {
-                    handleViolation("focus_lost_while_screen_sharing",
-                        `CRITICAL: Focus lost! Away for ${duration.toFixed(1)}s.`,
-                        { duration_away_seconds: duration, severity: 'high' }
-                    );
-                } else {
-                    handleViolation("focus_lost",
-                        `Window focus lost! Away for ${duration.toFixed(1)}s.`,
-                        { duration_away_seconds: duration }
-                    );
+
+                // Only log if it was a significant duration or a hidden violation
+                // For visible blurs < 0.5s (that didn't trigger the timeout), we effectively IGNORE them.
+                if (duration > 0.5) { // Filter micro-blurs
+                    if (isSharing) {
+                        handleViolation("focus_lost_while_screen_sharing",
+                            `Focus lost for ${duration.toFixed(1)}s.`,
+                            { duration_away_seconds: duration, severity: 'medium', was_visible: !document.hidden }
+                        );
+                    } else {
+                        handleViolation("focus_lost",
+                            `Focus lost for ${duration.toFixed(1)}s`,
+                            { duration_seconds: duration, was_hidden: document.hidden }
+                        );
+                    }
                 }
+
                 lastBlurTime.current = null;
             }
         };
@@ -524,10 +605,10 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     return (
         <div className="relative w-full h-full select-none" onContextMenu={(e) => e.preventDefault()}>
             <style jsx global>{`
-                @media print {
-                    body { display: none !important; }
-                }
-            `}</style>
+                @media print {
+                    body { display: none !important; }
+                }
+            `}</style>
 
             {/* Watermark */}
             <div className="fixed inset-0 pointer-events-none z-[50] flex items-center justify-center opacity-[0.03] overflow-hidden">
@@ -573,9 +654,10 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                     variant="destructive"
                     size="lg"
                     onClick={() => releaseObscure()}
-                    className="animate-in fade-in zoom-in duration-500 delay-1000"
+                    disabled={timeLeft > 0}
+                    className="animate-in fade-in zoom-in duration-500 delay-1000 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    I Acknowledge & Resume
+                    {timeLeft > 0 ? `Wait ${timeLeft}s to Resume` : 'I Acknowledge & Resume'}
                 </Button>
             </div>
 
@@ -615,21 +697,22 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                 </div>
             </div>
 
-            {/* Warnings Overlay */}
-            {warnings.length > 0 && (
-                <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4 pointer-events-none">
-                    {warnings.slice(-1).map((w, i) => (
-                        <Alert key={i} variant="destructive" className="mb-2 shadow-lg animate-in fade-in slide-in-from-top-5">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Warning</AlertTitle>
-                            <AlertDescription>{w}</AlertDescription>
-                        </Alert>
-                    ))}
-                </div>
-            )}
 
-            {children}
-        </div>
+
+
+            {/* Transient Warning Box (Standard Style) */}
+            {currentWarning && (
+                <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-lg px-4 pointer-events-none">
+                    <Alert variant="destructive" className="mb-2 shadow-lg animate-in fade-in slide-in-from-top-5">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Security Violation</AlertTitle>
+                        <AlertDescription>
+                            {currentWarning}
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}{children}
+        </div >
     );
 };
 

@@ -22,6 +22,7 @@ export const useScreenShareContextLock = (
 ) => {
     const baselineRef = useRef<ScreenBaseline | null>(null);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const muteCounterRef = useRef(0);
     const [violationCount, setViolationCount] = useState(0);
 
     const log = useCallback(async (event: string, payload: Record<string, unknown>) => {
@@ -111,12 +112,26 @@ export const useScreenShareContextLock = (
             }
 
             // Track Muted/Ended unexpectedly
-            if (currentTrack.muted || currentTrack.readyState === 'ended') {
+            if (currentTrack.readyState === 'ended') {
                 log('screen_context_violation', {
                     timestamp: new Date().toISOString(),
                     severity: 'critical',
-                    reason: currentTrack.muted ? 'Screen Track Muted' : 'Screen Track Ended Unexpectedly'
+                    reason: 'Screen Track Ended Unexpectedly (User stopped sharing)'
                 });
+            } else if (currentTrack.muted) {
+                // Debounce Muted State: Only trigger if muted for > 1 check cycle (approx 4s)
+                muteCounterRef.current = (muteCounterRef.current || 0) + 1;
+
+                if (muteCounterRef.current > 2) { // Allow 2 checks grace (~4s)
+                    log('screen_context_violation', {
+                        timestamp: new Date().toISOString(),
+                        severity: 'critical',
+                        reason: 'Screen Track Muted (Source unavailable or minimized)'
+                    });
+                }
+            } else {
+                // Reset counter if track recovers
+                muteCounterRef.current = 0;
             }
 
         }, 2000); // Check every 2s

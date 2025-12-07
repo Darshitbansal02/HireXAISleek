@@ -137,14 +137,22 @@ async def start_test(
     if str(assignment.candidate_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # 3. Check Schedule
-    if assignment.scheduled_at and datetime.now(timezone.utc) < assignment.scheduled_at:
-        wait_time = (assignment.scheduled_at - datetime.now(timezone.utc)).total_seconds()
-        minutes = int(wait_time // 60)
-        raise HTTPException(
-            status_code=403,
-            detail=f"Test is scheduled for {assignment.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}. Please wait {minutes} minutes."
-        )
+    # 3. Check Schedule (Robust Timezone Handling)
+    if assignment.scheduled_at:
+        now_utc = datetime.now(timezone.utc)
+        scheduled_utc = assignment.scheduled_at
+        
+        # Ensure scheduled_utc is timezone-aware
+        if scheduled_utc.tzinfo is None:
+            scheduled_utc = scheduled_utc.replace(tzinfo=timezone.utc)
+            
+        if now_utc < scheduled_utc:
+            wait_time = (scheduled_utc - now_utc).total_seconds()
+            minutes = int(wait_time // 60) + 1 # Round up
+            raise HTTPException(
+                status_code=403,
+                detail=f"Test is scheduled for {scheduled_utc.strftime('%Y-%m-%d %H:%M UTC')}. Please wait {minutes} minutes."
+            )
 
     # 4. Check Attempts (Max 3)
     if assignment.attempt_count >= 3:

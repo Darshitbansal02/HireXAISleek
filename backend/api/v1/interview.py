@@ -20,12 +20,12 @@ class UserSchema(BaseModel):
     full_name: str
     email: str
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class JobSchema(BaseModel):
     title: str
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class InterviewResponse(BaseModel):
     id: int
@@ -39,7 +39,7 @@ class InterviewResponse(BaseModel):
     job: Optional[JobSchema] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 @router.post("/create", response_model=InterviewResponse)
 async def create_interview(

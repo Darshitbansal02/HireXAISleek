@@ -282,6 +282,23 @@ export default function TestPage() {
         }
     };
 
+    const [maxWarnings, setMaxWarnings] = useState(5);
+
+    // Fetch Proctoring Config
+    useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const config = await apiClient.getProctoringEventsConfig();
+                if (config.settings?.max_warnings) {
+                    setMaxWarnings(config.settings.max_warnings);
+                }
+            } catch (e) {
+                console.error("Failed to load proctor settings", e);
+            }
+        };
+        fetchSettings();
+    }, []);
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen bg-background text-foreground">
@@ -289,6 +306,10 @@ export default function TestPage() {
             </div>
         );
     }
+
+
+
+
 
     if (accessDenied) {
         return (
@@ -353,6 +374,62 @@ export default function TestPage() {
     }
 
 
+
+    // --- SCHEDULED LOCK SCREEN ---
+    if (scheduledAt && scheduledAt > new Date()) {
+        const timeUntilStart = scheduledAt.getTime() - new Date().getTime();
+        const hoursUntil = Math.floor(timeUntilStart / (1000 * 60 * 60));
+        const minutesUntil = Math.floor((timeUntilStart % (1000 * 60 * 60)) / (1000 * 60));
+        const secondsUntil = Math.floor((timeUntilStart % (1000 * 60)) / 1000);
+
+        return (
+            <div className="flex items-center justify-center h-screen bg-background p-4">
+                <Card className="w-full max-w-lg shadow-2xl border-primary/10">
+                    <CardHeader className="text-center pb-2">
+                        <div className="flex justify-center mb-4">
+                            <div className="p-4 rounded-full bg-primary/10 animate-pulse">
+                                <Clock className="w-12 h-12 text-primary" />
+                            </div>
+                        </div>
+                        <CardTitle className="text-2xl font-bold tracking-tight">
+                            Test Scheduled
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6 text-center">
+                        <p className="text-muted-foreground text-lg">
+                            This test is scheduled to start at:
+                            <br />
+                            <span className="font-semibold text-foreground">
+                                {scheduledAt.toLocaleString()}
+                            </span>
+                        </p>
+
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                            <div className="p-3 bg-muted rounded-lg border">
+                                <span className="text-2xl font-bold">{hoursUntil}</span>
+                                <p className="text-xs text-muted-foreground uppercase">Hours</p>
+                            </div>
+                            <div className="p-3 bg-muted rounded-lg border">
+                                <span className="text-2xl font-bold">{minutesUntil}</span>
+                                <p className="text-xs text-muted-foreground uppercase">Minutes</p>
+                            </div>
+                            <div className="p-3 bg-muted rounded-lg border">
+                                <span className="text-2xl font-bold">{secondsUntil}</span>
+                                <p className="text-xs text-muted-foreground uppercase">Seconds</p>
+                            </div>
+                        </div>
+
+                        <Button disabled className="w-full" size="lg">
+                            Please Wait...
+                        </Button>
+                        <Button variant="ghost" onClick={() => router.push("/candidate")} className="w-full">
+                            Return to Dashboard
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     if (!started) {
         return (
@@ -467,7 +544,7 @@ export default function TestPage() {
             <ProctoringGuard
                 assignmentId={assignmentId}
                 onViolation={handleViolation}
-                maxWarnings={5}
+                maxWarnings={maxWarnings}
                 onTerminate={handleTerminate}
             >
                 <TestLayout

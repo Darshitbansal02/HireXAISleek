@@ -34,7 +34,8 @@ async def assign_test(
             test_id=test.id,
             candidate_id=candidate_id,
             recruiter_id=current_user.id,
-            expires_at=assignment_in.expires_at
+            expires_at=assignment_in.expires_at,
+            scheduled_at=assignment_in.scheduled_at
         )
         db.add(assignment)
         db.commit()
@@ -45,13 +46,14 @@ async def assign_test(
         from services.notification_service import notification_service
         
         # Format dates for message
+        start_str = assignment.scheduled_at.strftime('%Y-%m-%d %H:%M UTC') if assignment.scheduled_at else "Now"
         expires_str = assignment.expires_at.strftime('%Y-%m-%d %H:%M UTC') if assignment.expires_at else "No deadline"
         
         notification_service.create_notification(
             db=db,
             user_id=candidate_id,
             title="New Assessment Assigned",
-            message=f"You have been assigned: {test.title}. Please complete it before {expires_str}. Late start will reduce your available time.",
+            message=f"You have been assigned: {test.title}. Please check your dashboard for the scheduled start time and deadline.",
             type="warning", 
             link_url=f"/candidate/test/{assignment.id}"
         )

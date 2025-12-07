@@ -76,6 +76,13 @@ export default function RecruiterDashboard() {
     }
   }, [isAuthenticated]);
 
+  // Auth redirection
+  useEffect(() => {
+    if (!isAuthenticated && !isLoading) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, isLoading, router]);
+
   const fetchStats = async () => {
     setStatsError(false);
     try {
@@ -215,9 +222,9 @@ export default function RecruiterDashboard() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
+
+
+  if (!isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-muted/20">

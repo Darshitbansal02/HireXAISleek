@@ -91,17 +91,13 @@ class ApiClient {
     private inMemoryToken: string | null = null;
 
     setToken(token: string) {
-        // Store in memory only (not in localStorage for security)
         this.inMemoryToken = token;
-        // DEPRECATED: Clear any old localStorage usage for backward compat
         if (typeof window !== "undefined") {
             try {
-                const oldToken = localStorage.getItem("auth_token");
-                if (oldToken) {
-                    console.warn("[DEPRECATED] Removing auth_token from localStorage. Use in-memory session instead.");
-                    localStorage.removeItem("auth_token");
-                }
-            } catch (e) { }
+                localStorage.setItem("auth_token", token);
+            } catch (e) {
+                console.error("Failed to save token", e);
+            }
         }
     }
 
@@ -110,14 +106,10 @@ class ApiClient {
         if (this.inMemoryToken) {
             return this.inMemoryToken;
         }
-        // Fallback: attempt to read from localStorage (deprecated; log warning)
+        // Fallback: attempt to read from localStorage
         if (typeof window !== "undefined") {
             try {
-                const token = localStorage.getItem("auth_token");
-                if (token) {
-                    console.warn("[DEPRECATED] Auth token read from localStorage. Session will be lost on refresh.");
-                    return token;
-                }
+                return localStorage.getItem("auth_token");
             } catch (e) { }
         }
         return null;
@@ -147,6 +139,15 @@ class ApiClient {
     }) {
         try {
             const response = await this.client.post("/v1/auth/register", payload);
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
+    async getCurrentUser() {
+        try {
+            const response = await this.client.get("/v1/auth/me");
             return response.data;
         } catch (error) {
             throw this.handleError(error);
@@ -963,6 +964,23 @@ Use this exact schema:
     }
 
 
+    async getProctoringEventsConfig() {
+        try {
+            const response = await this.client.get("/v1/proctoring/events-config");
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+    async getProctorEventsStatus(assignmentId: string) {
+        try {
+            const response = await this.client.get("/v1/proctoring/status", {
+                params: { assignment_id: assignmentId }
+            });
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
 }
-
 export const apiClient = new ApiClient();
