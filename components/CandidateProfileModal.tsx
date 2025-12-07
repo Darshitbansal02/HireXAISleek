@@ -10,6 +10,9 @@ import { apiClient } from "@/lib/api-client";
 import { Loader, MapPin, Mail, Phone, Linkedin, Globe, Download, Briefcase, GraduationCap, Star, FileText, User as UserIcon } from "lucide-react";
 import { ShortlistButton } from "./ShortlistButton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ExperienceList } from "./profile/ExperienceList";
+import { EducationList } from "./profile/EducationList";
+import { SkillsList } from "./profile/SkillsList";
 
 interface CandidateProfileModalProps {
     candidateId: number | null;
@@ -242,27 +245,10 @@ export function CandidateProfileModal({ candidateId, isOpen, onClose, similarity
                                             </div>
                                             Experience
                                         </h3>
-                                        {profile.experience && profile.experience.length > 0 ? (
-                                            <div className="space-y-6">
-                                                {profile.experience.map((exp: any, i: number) => (
-                                                    <div key={i} className="relative pl-6 border-l-2 border-muted pb-6 last:pb-0 last:border-l-0">
-                                                        <div className="absolute -left-[9px] top-1.5 h-4 w-4 rounded-full bg-background border-2 border-primary ring-4 ring-background" />
-                                                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-1 gap-1">
-                                                            <h4 className="font-semibold text-base text-foreground">{exp.title}</h4>
-                                                            <Badge variant="outline" className="w-fit text-xs font-normal text-muted-foreground bg-muted/30">
-                                                                {exp.start_date} - {exp.current ? "Present" : exp.end_date}
-                                                            </Badge>
-                                                        </div>
-                                                        <p className="text-primary font-medium text-sm mb-2">{exp.company}</p>
-                                                        {exp.description && (
-                                                            <p className="text-sm text-muted-foreground leading-relaxed">{exp.description}</p>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground italic">No experience listed.</p>
-                                        )}
+                                        <ExperienceList
+                                            experiences={profile.experience}
+                                            variant="timeline"
+                                        />
                                     </section>
 
                                     <Separator />
@@ -275,27 +261,10 @@ export function CandidateProfileModal({ candidateId, isOpen, onClose, similarity
                                             </div>
                                             Education
                                         </h3>
-                                        {profile.education && profile.education.length > 0 ? (
-                                            <div className="grid sm:grid-cols-2 gap-4">
-                                                {profile.education.map((edu: any, i: number) => (
-                                                    <div key={i} className="p-4 rounded-xl border bg-card hover:bg-muted/20 transition-colors">
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                                                                <GraduationCap className="h-5 w-5 text-primary" />
-                                                            </div>
-                                                            <div>
-                                                                <h4 className="font-semibold text-sm">{edu.school}</h4>
-                                                                <p className="text-sm text-muted-foreground font-medium">{edu.degree}</p>
-                                                                <p className="text-xs text-muted-foreground mt-1">{edu.field}</p>
-                                                                <p className="text-xs text-muted-foreground mt-2 bg-muted inline-block px-2 py-0.5 rounded-full">{edu.year}</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground italic">No education listed.</p>
-                                        )}
+                                        <EducationList
+                                            education={profile.education}
+                                            variant="view"
+                                        />
                                     </section>
                                 </div>
 
@@ -337,17 +306,10 @@ export function CandidateProfileModal({ candidateId, isOpen, onClose, similarity
                                             </div>
                                             Skills
                                         </h3>
-                                        {profile.skills && profile.skills.length > 0 ? (
-                                            <div className="flex flex-wrap gap-2">
-                                                {profile.skills.map((skill: string, i: number) => (
-                                                    <Badge key={i} variant="secondary" className="px-3 py-1.5 text-sm font-normal hover:bg-primary/10 hover:text-primary transition-colors cursor-default">
-                                                        {skill}
-                                                    </Badge>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground italic">No skills listed.</p>
-                                        )}
+                                        <SkillsList
+                                            skills={profile.skills}
+                                            variant="view"
+                                        />
                                     </section>
 
                                     {/* Resume Preview Thumbnail (Optional) */}

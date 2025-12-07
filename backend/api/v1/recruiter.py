@@ -394,6 +394,37 @@ async def schedule_event(
         notes=event_in.notes
     )
     
+    # --- AUTO-CREATE VIDEO SESSION ---
+    # If it's an online interview, create a HireXAI InterviewSession
+    if event.event_type == "interview" and event.mode == "online":
+        import uuid
+        from models.interview import InterviewSession, InterviewStatus
+        
+        # Generate Room ID
+        room_id = str(uuid.uuid4())
+        
+        # Create Session
+        interview_session = InterviewSession(
+            room_id=room_id,
+            recruiter_id=current_user.id,
+            candidate_id=candidate_profile.user_id, # Must use User ID
+            job_id=event_in.job_id,
+            scheduled_at=event_in.scheduled_at,
+            status=InterviewStatus.SCHEDULED
+        )
+        db.add(interview_session)
+        
+        # Update Event Link
+        # Frontend logic usually redirects /interview/{roomId}
+        # Recruiter link: /recruiter/interview/{roomId}
+        # Candidate link: /candidate/interview/{roomId}
+        # We'll store the relative path for now, or just the ID implies it.
+        # Let's verify what the frontend expects in 'location_url'.
+        # Usually it's a full link for external tools. 
+        # For internal, we can put the room link.
+        event.location_url = f"/candidate/interview/{room_id}"
+        print(f"[DEBUG] Created InterviewSession {room_id} for ScheduledEvent")
+
     db.add(event)
     db.commit()
     db.refresh(event)

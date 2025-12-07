@@ -6,24 +6,21 @@ import screenfull from 'screenfull';
 import { apiClient } from '@/lib/api-client';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from "@/components/ui/dialog";
 import { AlertTriangle, Camera, Maximize, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Define FaceDetector types locally since they are experimental
-interface FaceDetectorOptions {
-    fastMode?: boolean;
-    maxDetectedFaces?: number;
-}
-
-interface DetectedFace {
-    boundingBox: DOMRectReadOnly;
-    landmarks: any[];
-}
-
-declare class FaceDetector {
-    constructor(options?: FaceDetectorOptions);
-    detect(image: ImageBitmapSource): Promise<DetectedFace[]>;
-}
+import { useFaceDetection } from '@/hooks/useFaceDetection';
+import useScreenShareProctor from '@/hooks/useScreenShareProctor';
+import useSingleTabEnforcer from '@/hooks/useSingleTabEnforcer';
+import { useSystemIntegrity } from '@/hooks/useSystemIntegrity';
+import { useExtensionDetector } from '@/hooks/useExtensionDetector';
 
 interface ProctoringGuardProps {
     assignmentId: string;
@@ -43,61 +40,155 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [warnings, setWarnings] = useState<string[]>([]);
     const webcamRef = useRef<Webcam>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
     const [isCameraReady, setIsCameraReady] = useState(false);
     const [permissionsGranted, setPermissionsGranted] = useState(false);
     const [gracePeriod, setGracePeriod] = useState(true);
 
+    // New State for Screenshot Blocking
+    const [isObscured, setIsObscured] = useState(false);
+    const [obscureMessage, setObscureMessage] = useState({ title: "Security Violation", subtitle: "Screenshot Attempt Detected" });
+    const obscureOverlayRef = useRef<HTMLDivElement>(null);
+
+    const triggerObscure = useCallback((instant = true, title = "Security Violation", subtitle = "Screenshot Attempt Detected") => {
+        // Direct DOM manipulation for instant feedback
+        document.body.classList.add('security-violation');
+
+        if (instant && obscureOverlayRef.current) {
+            obscureOverlayRef.current.style.display = 'flex';
+        }
+        setObscureMessage({ title, subtitle });
+        setIsObscured(true);
+    }, []);
+
+    const releaseObscure = useCallback(() => {
+        setIsObscured(false);
+        document.body.classList.remove('security-violation');
+
+        if (obscureOverlayRef.current) {
+            obscureOverlayRef.current.style.display = 'none';
+        }
+    }, []);
+
+    // Restored Logic
+    const [isSettingUpScreenShare, setIsSettingUpScreenShare] = useState(false);
+
     // Tracking refs
     const lastBlurTime = useRef<number | null>(null);
-    const faceMissingSince = useRef<number | null>(null);
-    const faceDetectorRef = useRef<FaceDetector | null>(null);
 
-    // Grace period to prevent initial false positives
+    // Grace period
     useEffect(() => {
-        const timer = setTimeout(() => setGracePeriod(false), 5000); // 5s grace period
+        const timer = setTimeout(() => setGracePeriod(false), 5000);
         return () => clearTimeout(timer);
     }, []);
 
     // --- Violation Handler ---
     const handleViolation = useCallback(async (type: string, message: string, extraPayload: any = {}) => {
-        if (gracePeriod) return;
+        // Allow immediate violation logging regardless of grace period for specific critical events if needed, 
+        // but guarding general ones is fine.
+        if (gracePeriod && type !== 'devtools_attempt') return;
 
         setWarnings(prev => {
-            // Don't spam the same warning
             if (prev.includes(message)) return prev;
 
             const newWarnings = [...prev, message];
+
+            // CRITICAL: Immediate check and action
             if (onTerminate && newWarnings.length >= maxWarnings) {
-                onTerminate();
+                // Execute immediately, don't wait for render cycle
+                setTimeout(() => onTerminate(), 0);
             }
+
             return newWarnings;
         });
 
-        // Auto-dismiss toast after 3 seconds
         toast.warning(message, { duration: 3000 });
         onViolation(type);
 
-        // Auto-remove warning from UI overlay after 5 seconds
         setTimeout(() => {
             setWarnings(prev => prev.filter(w => w !== message));
         }, 5000);
 
         try {
-            // Construct payload
-            const payload: any = {
+            const response = await apiClient.logProctorEvent(assignmentId, type, {
                 message,
                 timestamp: new Date().toISOString(),
                 ...extraPayload
-            };
+            });
 
-            await apiClient.logProctorEvent(assignmentId, type, payload);
+            if (response && response.terminated) {
+                setTimeout(() => onTerminate && onTerminate(), 0);
+            }
         } catch (error) {
             console.error("Failed to log violation:", error);
         }
     }, [assignmentId, onViolation, gracePeriod, maxWarnings, onTerminate]);
 
-    // --- Strict Security Enforcers ---
+    // Use System Integrity Hook
+    const { isCompromised } = useSystemIntegrity({
+        isActive: true, // ALWAYS CHECK INTEGRITY, even during setup/grace period
+        onViolation: (type, msg) => handleViolation(type, msg)
+    });
+
+    // --- Face Detection Hook ---
     useEffect(() => {
+        if (webcamRef.current && webcamRef.current.video) {
+            // @ts-ignore
+            videoRef.current = webcamRef.current.video;
+        }
+    }, [isCameraReady]);
+
+    useFaceDetection({
+        videoRef,
+        isActive: isCameraReady && isFullscreen && !gracePeriod,
+        onMultipleFaces: (count) => {
+            handleViolation("multiple_faces", `Multiple faces detected (${count}).`, { faces_count: count });
+        },
+        onFaceMissing: (duration) => {
+            if (duration > 5) {
+                handleViolation("face_missing", "Face not detected. Please stay in front of the camera.", { duration_missing_seconds: duration });
+            }
+        }
+    });
+
+    // --- Screen Share Setup (Step 2) ---
+    const { isSharing, start: startScreenProctor, stop: stopScreenProctor } = useScreenShareProctor(assignmentId);
+
+    const handleStartScreenShare = async () => {
+        try {
+            setIsSettingUpScreenShare(true);
+            await startScreenProctor();
+            setIsSettingUpScreenShare(false);
+            // isSharing will update via hook
+        } catch (error) {
+            setIsSettingUpScreenShare(false);
+            console.error("Failed to start screen share:", error);
+            toast.error("Screen sharing is required to proceed.");
+        }
+    };
+
+    // --- Strict Security Enforcers (Only active when test is fully running) ---
+    // --- Strict Security Enforcers (Only active when test is fully running) ---
+    useEffect(() => {
+        // Only enforce if we have passed all checks
+        if (!isFullscreen || !permissionsGranted || !isSharing) return;
+
+        const handleScreenshotAttempt = () => {
+            // CRITICAL: Block IMMEDIATELY using Ref for speed
+            triggerObscure(true, "Security Violation", "Screenshot Attempt Detected");
+
+            handleViolation("screenshot_attempt", "Screenshots are prohibited.");
+
+            // Clear clipboard aggressively
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText("Screenshot Prohibited - Violation Logged").catch(() => { });
+            }
+
+            // PERMANENT BLOCK until Manual Dismiss (Like DevTools)
+            // We do NOT auto-release. The user must click "I Acknowledge" on the overlay.
+            // This prevents rapid-fire screenshot attempts.
+        };
+
         const handleCopyCutPaste = (e: ClipboardEvent) => {
             e.preventDefault();
             handleViolation("clipboard_attempt", "Copying, cutting, and pasting are disabled.");
@@ -105,18 +196,23 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
 
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
-            // handleViolation("context_menu", "Right-click is disabled.");
         };
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            // PrintScreen
-            if (e.key === 'PrintScreen') {
-                handleViolation("screenshot_attempt", "Screenshots are prohibited.");
-                document.body.style.filter = "blur(20px)";
-                setTimeout(() => { document.body.style.filter = "none"; }, 2000);
+            // Consolidated Screenshot Blocking Logic
+            const isPrintScreen = e.key === 'PrintScreen' || e.code === 'PrintScreen';
+            const isSnippingTool = e.metaKey && e.shiftKey && (e.key === 's' || e.key === 'S');
+            const isMacScreenshot = e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4');
+            const isWinPrintScreen = e.metaKey && isPrintScreen;
+
+            if (isPrintScreen || isSnippingTool || isMacScreenshot || isWinPrintScreen) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleScreenshotAttempt();
+                return;
             }
 
-            // F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
+            // DevTools Check
             if (
                 e.key === 'F12' ||
                 (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J')) ||
@@ -125,21 +221,23 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                 e.preventDefault();
                 handleViolation("devtools_open", "DevTools usage is prohibited.");
             }
-
-            // Alt+Tab detection (best effort via keydown)
-            if (e.altKey && e.key === 'Tab') {
-                // We'll let the visibility change handler catch the actual switch, 
-                // but we can warn here too if we want.
-                // handleViolation("tab_switch_attempt", "Alt+Tab is prohibited.");
-            }
         };
 
-        // Attach listeners
+        // KeyUp Listener to clear clipboard recursively if PrintScreen was held
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText("Protected").catch(() => { });
+                }
+            }
+        }
+
         document.addEventListener('copy', handleCopyCutPaste);
         document.addEventListener('cut', handleCopyCutPaste);
         document.addEventListener('paste', handleCopyCutPaste);
-        document.addEventListener('contextmenu', handleContextMenu); // Disable right click
+        document.addEventListener('contextmenu', handleContextMenu);
         window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
 
         return () => {
             document.removeEventListener('copy', handleCopyCutPaste);
@@ -147,47 +245,49 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
             document.removeEventListener('paste', handleCopyCutPaste);
             document.removeEventListener('contextmenu', handleContextMenu);
             window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
         };
-    }, [handleViolation]);
+    }, [handleViolation, isFullscreen, permissionsGranted, isSharing, triggerObscure, releaseObscure]);
 
-    // --- Tab Switching & Blur with Duration ---
+    // --- Tab Switching & Blur ---
     useEffect(() => {
+        if (!isFullscreen || !permissionsGranted) return;
+
         const handleVisibilityChange = () => {
             if (document.hidden) {
-                // Tab hidden (switched away)
+                triggerObscure(true);
                 lastBlurTime.current = Date.now();
             } else {
-                // Tab visible again
-                if (lastBlurTime.current) {
-                    const duration = (Date.now() - lastBlurTime.current) / 1000;
-                    // Immediate warning for any tab switch
-                    handleViolation(
-                        "tab_switch",
-                        `Tab switching detected! You were away for ${duration.toFixed(1)} seconds.`,
-                        { duration_away_seconds: duration }
-                    );
-                    lastBlurTime.current = null;
-                }
+                // Determine if we should reveal immediately or if checking logic is needed
+                // For now, we reveal, but the violation might persist if logic downstream triggers
             }
         };
 
         const handleBlur = () => {
-            // Window lost focus but might still be visible (e.g. clicking another window on dual monitor)
-            // We can treat this as a start of a potential away event if not already hidden
+            // CRITICAL: Block immediately on blur (e.g. Snipping Tool activation)
+            triggerObscure(true, "Focus Lost", "Tab Switching / Application Switch Detected");
+
             if (!document.hidden && !lastBlurTime.current) {
                 lastBlurTime.current = Date.now();
             }
         };
 
         const handleFocus = () => {
+            releaseObscure(); // Restore visibility
+
             if (lastBlurTime.current) {
                 const duration = (Date.now() - lastBlurTime.current) / 1000;
-                // Immediate warning for focus loss
-                handleViolation(
-                    "focus_lost",
-                    `Window focus lost! You were away for ${duration.toFixed(1)} seconds.`,
-                    { duration_away_seconds: duration }
-                );
+                if (isSharing) {
+                    handleViolation("focus_lost_while_screen_sharing",
+                        `CRITICAL: Focus lost! Away for ${duration.toFixed(1)}s.`,
+                        { duration_away_seconds: duration, severity: 'high' }
+                    );
+                } else {
+                    handleViolation("focus_lost",
+                        `Window focus lost! Away for ${duration.toFixed(1)}s.`,
+                        { duration_away_seconds: duration }
+                    );
+                }
                 lastBlurTime.current = null;
             }
         };
@@ -201,7 +301,7 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
             window.removeEventListener("blur", handleBlur);
             window.removeEventListener("focus", handleFocus);
         };
-    }, [handleViolation]);
+    }, [handleViolation, isFullscreen, permissionsGranted, isSharing]);
 
     // --- Fullscreen Enforcement ---
     const enterFullscreen = () => {
@@ -214,9 +314,13 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     };
 
     useEffect(() => {
+        // If we are in setup steps wait for sharing
+        if (!isSharing) return;
+
         const handleFullscreenChange = () => {
             const isFull = screenfull.isFullscreen;
             setIsFullscreen(isFull);
+
             if (!isFull && permissionsGranted && !gracePeriod) {
                 handleViolation("fullscreen_exit", "You exited fullscreen mode.");
             }
@@ -231,80 +335,23 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                 screenfull.off('change', handleFullscreenChange);
             }
         };
-    }, [permissionsGranted, handleViolation, gracePeriod]);
+    }, [permissionsGranted, handleViolation, gracePeriod, isSharing]);
 
-    // --- Face Detection Logic ---
-    useEffect(() => {
-        // Initialize FaceDetector if available
-        if ('FaceDetector' in window) {
-            try {
-                // @ts-ignore
-                faceDetectorRef.current = new FaceDetector({ fastMode: true, maxDetectedFaces: 2 });
-            } catch (e) {
-                console.error("FaceDetector initialization failed:", e);
-            }
-        } else {
-            console.warn("FaceDetector API not supported in this browser.");
-            // We could log a warning to the backend that face detection is unavailable
+    // --- Single Tab Enforcement ---
+    useSingleTabEnforcer(assignmentId, (isActive) => {
+        if (!isActive) {
+            handleViolation(
+                "multiple_test_tabs_detected",
+                "Test is already open in another tab. This instance is restricted."
+            );
         }
-    }, []);
+    });
 
-    const detectFaces = useCallback(async () => {
-        if (!faceDetectorRef.current || !webcamRef.current || !webcamRef.current.video || !isCameraReady) return;
-
-        try {
-            const video = webcamRef.current.video;
-            if (video.readyState !== 4) return; // Ensure video is ready
-
-            const faces = await faceDetectorRef.current.detect(video);
-
-            // 1. Multiple Faces
-            if (faces.length > 1) {
-                handleViolation(
-                    "multiple_faces",
-                    `Multiple faces detected (${faces.length}).`,
-                    { faces_count: faces.length }
-                );
-                faceMissingSince.current = null; // Reset missing timer
-            }
-            // 2. No Face
-            else if (faces.length === 0) {
-                if (!faceMissingSince.current) {
-                    faceMissingSince.current = Date.now();
-                } else {
-                    const missingDuration = (Date.now() - faceMissingSince.current) / 1000;
-                    // Only warn if missing for > 5 seconds to avoid false positives from movement/lighting
-                    if (missingDuration > 5) {
-                        // We don't want to spam this every interval, so maybe check if we haven't warned recently?
-                        // For now, handleViolation handles debouncing via setWarnings check, 
-                        // but we might want to log it periodically or once per "episode".
-                        // Let's just log it. The debounce in handleViolation (5s) will prevent total spam.
-                        handleViolation(
-                            "face_missing",
-                            "Face not detected. Please stay in front of the camera.",
-                            { duration_missing_seconds: missingDuration }
-                        );
-                    }
-                }
-            }
-            // 3. One Face (Normal)
-            else {
-                faceMissingSince.current = null;
-            }
-
-        } catch (err) {
-            console.error("Face detection error:", err);
-        }
-    }, [isCameraReady, handleViolation]);
-
-    // Run detection loop
-    useEffect(() => {
-        if (permissionsGranted && isFullscreen && isCameraReady) {
-            const interval = setInterval(detectFaces, 1500); // Check every 1.5s
-            return () => clearInterval(interval);
-        }
-    }, [detectFaces, permissionsGranted, isFullscreen, isCameraReady]);
-
+    // --- Extension Detection ---
+    useExtensionDetector({
+        assignmentId,
+        isActive: isFullscreen && !gracePeriod
+    });
 
     // --- Draggable Logic ---
     const [position, setPosition] = useState({ x: window.innerWidth - 150, y: window.innerHeight - 150 });
@@ -338,17 +385,12 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         };
     }, [isDragging, handleMouseMove]);
 
-
     // --- Permission Check ---
     const checkPermissions = useCallback(async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            // Don't stop tracks immediately, let Webcam component handle it or keep it open?
-            // Actually, react-webcam needs its own stream. 
-            // We just check here. But stopping it is fine, react-webcam will request it again.
             stream.getTracks().forEach(track => track.stop());
             setPermissionsGranted(true);
-            // isCameraReady will be set by Webcam onUserMedia
         } catch (err) {
             console.error("Permission denied:", err);
             toast.error("Camera permission is required to start the test.");
@@ -356,15 +398,59 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         }
     }, []);
 
-    // Initial check
     useEffect(() => {
         checkPermissions();
     }, [checkPermissions]);
 
+    // --- Render Logic ---
 
-    // --- Render Logic (Enforce Order) ---
+    // 0. CRITICAL: System Integrity Block (DevTools/Viewport) - Covers ALL phases (Camera, Screen, Test)
+    if (isCompromised) {
+        return (
+            <div className="fixed inset-0 z-[9999] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+                <div className="w-full max-w-lg shadow-2xl border-destructive/20 bg-destructive/5 rounded-xl border bg-card text-card-foreground">
+                    <div className="flex flex-col space-y-1.5 p-6 text-center pb-2">
+                        <div className="flex justify-center mb-4">
+                            <div className="p-4 rounded-full bg-destructive/10 animate-pulse">
+                                <AlertTriangle className="w-12 h-12 text-destructive" />
+                            </div>
+                        </div>
+                        <h3 className="text-2xl font-bold tracking-tight text-destructive">
+                            Critical Security Warning
+                        </h3>
+                    </div>
+                    <div className="p-6 pt-0 space-y-6 text-center">
+                        <div className="space-y-2">
+                            <p className="text-muted-foreground text-lg font-medium">
+                                System integrity compromised. Developer Tools or invalid viewport detected.
+                            </p>
+                            <p className="text-destructive font-bold text-lg uppercase tracking-wide">
+                                ⚠️ This is your FINAL WARNING ⚠️
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                Continuing to access prohibited tools will result in <strong>IMMEDIATE EXAM TERMINATION</strong>.
+                            </p>
+                        </div>
 
-    // 1. Camera Permission
+                        <div className="p-4 bg-background rounded-xl border border-destructive/10 text-left">
+                            <p className="font-semibold text-destructive mb-2">Requirement to Proceed:</p>
+                            <ul className="list-disc list-inside text-sm text-foreground/80 space-y-1">
+                                <li>Close ALL Developer Tools (F12) immediately.</li>
+                                <li>Restore browser to full width and height.</li>
+                                <li>Do not attempt to inspect code or modify the page.</li>
+                            </ul>
+                        </div>
+
+                        <Button size="lg" className="w-full bg-destructive hover:bg-destructive/90 text-white shadow-lg shadow-destructive/20" onClick={() => window.location.reload()}>
+                            I Acknowledge & Fix
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Step 1: Camera Permissions
     if (!permissionsGranted) {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
@@ -372,9 +458,9 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                     <div className="flex justify-center mb-4">
                         <Camera className="w-12 h-12 text-primary" />
                     </div>
-                    <h2 className="text-2xl font-bold">Camera Access Required</h2>
+                    <h2 className="text-2xl font-bold">System Check: Camera</h2>
                     <p className="text-muted-foreground">
-                        To ensure test integrity, we require camera access. Your video will be monitored by an AI proctor.
+                        Step 1 of 3: We require camera access for proctoring.
                     </p>
                     <Button onClick={checkPermissions} size="lg" className="w-full">
                         Grant Camera Permission
@@ -384,30 +470,115 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         );
     }
 
-    // 2. Fullscreen
-    if (!isFullscreen) {
+    // Step 2: Screen Share
+    if (!isSharing) {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
                 <div className="max-w-md p-6 text-center space-y-4">
                     <div className="flex justify-center mb-4">
                         <Maximize className="w-12 h-12 text-primary" />
                     </div>
-                    <h2 className="text-2xl font-bold">Fullscreen Required</h2>
+                    <h2 className="text-2xl font-bold">System Check: Screen Share</h2>
                     <p className="text-muted-foreground">
-                        This test requires fullscreen mode. Please enable fullscreen to continue.
-                        Exiting fullscreen will be recorded as a violation.
+                        Step 2 of 3: Please share your <strong>Entire Screen</strong>.
+                        We cannot see your screen yet. This will open your browser's sharing dialog.
                     </p>
-                    <Button onClick={enterFullscreen} size="lg" className="w-full">
-                        Enter Fullscreen
+                    <div className="p-4 bg-muted/50 rounded-lg text-sm text-left">
+                        <p className="font-semibold mb-2">Instructions:</p>
+                        <ol className="list-decimal pl-4 space-y-1">
+                            <li>Click the button below.</li>
+                            <li>Select <strong>"Entire Screen"</strong> tab.</li>
+                            <li>Click the screen image to select it.</li>
+                            <li>Click <strong>"Share"</strong>.</li>
+                        </ol>
+                    </div>
+                    <Button onClick={handleStartScreenShare} size="lg" className="w-full">
+                        {isSettingUpScreenShare ? 'Waiting for Screen selection...' : 'Share Entire Screen'}
                     </Button>
                 </div>
             </div>
         );
     }
 
-    // 3. Test Content
+    // Step 3: Fullscreen
+    if (!isFullscreen) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+                <div className="max-w-md p-6 text-center space-y-4">
+                    <div className="flex justify-center mb-4">
+                        <Maximize className="w-12 h-12 text-blue-600 animate-pulse" />
+                    </div>
+                    <h2 className="text-2xl font-bold">System Check: Fullscreen</h2>
+                    <p className="text-muted-foreground">
+                        Step 3 of 3: Final step. Use fullscreen mode for the test duration.
+                    </p>
+                    <Button onClick={enterFullscreen} size="lg" className="w-full bg-blue-600 hover:bg-blue-700">
+                        Enter Fullscreen & Start Test
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
+    // All Checks Passed - Test Content
     return (
         <div className="relative w-full h-full select-none" onContextMenu={(e) => e.preventDefault()}>
+            <style jsx global>{`
+                @media print {
+                    body { display: none !important; }
+                }
+            `}</style>
+
+            {/* Watermark */}
+            <div className="fixed inset-0 pointer-events-none z-[50] flex items-center justify-center opacity-[0.03] overflow-hidden">
+                <div className="rotate-[-45deg] text-xs font-bold whitespace-nowrap select-none">
+                    {Array.from({ length: 100 }).map((_, i) => (
+                        <span key={i} className="mx-8 my-8 inline-block">
+                            CONFIDENTIAL • {assignmentId} • NO SCREENSHOTS
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+            {/* Robust Global Security Style */}
+            <style jsx global>{`
+                body.security-violation > *:not(#security-overlay-root) {
+                    filter: blur(20px) grayscale(100%) !important;
+                    pointer-events: none !important;
+                    user-select: none !important;
+                    overflow: hidden !important;
+                }
+                body.security-violation #security-overlay-root {
+                    filter: none !important;
+                    z-index: 2147483647 !important; /* Max Z-Index */
+                    display: flex !important;
+                }
+            `}</style>
+
+            {/* Screenshot Block Overlay - Ref Optimized */}
+            <div
+                id="security-overlay-root"
+                ref={obscureOverlayRef}
+                className="fixed inset-0 z-[9999] bg-black flex items-center justify-center flex-col gap-4 text-center p-10 select-none"
+                style={{ display: isObscured ? 'flex' : 'none' }}
+            >
+                <AlertTriangle className="w-24 h-24 text-red-600 animate-pulse" />
+                <h1 className="text-4xl font-bold uppercase text-red-500 tracking-widest">{obscureMessage.title}</h1>
+                <p className="text-2xl text-white font-semibold">{obscureMessage.subtitle}</p>
+                <p className="text-gray-400 max-w-lg mb-6">
+                    You have attempted to capture protected content or switched context. This action has been logged.
+                    Repeated violations will result in test termination.
+                </p>
+                <Button
+                    variant="destructive"
+                    size="lg"
+                    onClick={() => releaseObscure()}
+                    className="animate-in fade-in zoom-in duration-500 delay-1000"
+                >
+                    I Acknowledge & Resume
+                </Button>
+            </div>
+
             {/* Draggable Webcam */}
             <div
                 style={{
@@ -415,27 +586,32 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
                     left: position.x,
                     top: position.y,
                     cursor: isDragging ? 'grabbing' : 'grab',
-                    touchAction: 'none'
+                    touchAction: 'none',
+                    display: isObscured ? 'none' : 'block' // Hide webcam if obscured
                 }}
                 onMouseDown={handleMouseDown}
-                className="w-32 h-24 bg-black rounded-lg overflow-hidden border border-gray-800 shadow-lg z-[100] opacity-80 hover:opacity-100 transition-opacity"
+                className="w-32 h-24 bg-black rounded-lg overflow-hidden border border-gray-800 shadow-lg z-[100] border-white/20"
             >
-                <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    width={128}
-                    height={96}
-                    onUserMedia={() => setIsCameraReady(true)}
-                    className="w-full h-full object-cover pointer-events-none"
-                    videoConstraints={{
-                        width: 128,
-                        height: 96,
-                        facingMode: "user"
-                    }}
-                />
-                <div className="absolute top-1 right-1">
-                    <div className={`w-2 h-2 rounded-full ${isCameraReady ? 'bg-green-500' : 'bg-red-500'}`} />
+                <div className="w-full h-full relative bg-black/80 backdrop-blur-sm">
+                    {/* Camera */}
+                    <Webcam
+                        audio={false}
+                        ref={webcamRef}
+                        screenshotFormat="image/jpeg"
+                        width={128}
+                        height={96}
+                        onUserMedia={() => setIsCameraReady(true)}
+                        className="w-full h-full object-cover pointer-events-none rounded-lg"
+                        videoConstraints={{
+                            width: 128,
+                            height: 96,
+                            facingMode: "user"
+                        }}
+                    />
+                    {/* Status Indicator */}
+                    <div className="absolute top-2 right-2 flex gap-1">
+                        <div className={`w-2 h-2 rounded-full ${isCameraReady ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`} />
+                    </div>
                 </div>
             </div>
 

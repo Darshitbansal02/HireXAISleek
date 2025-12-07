@@ -9,6 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Upload, FileText, Linkedin, Globe, MapPin, Briefcase, GraduationCap, LinkIcon, CheckCircle2, Sparkles, Loader2, Plus, X, Save, User } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { motion } from "framer-motion";
+import { ExperienceList } from "./profile/ExperienceList";
+import { EducationList } from "./profile/EducationList";
+import { SkillsList } from "./profile/SkillsList";
 
 interface Experience {
     title: string;
@@ -371,19 +374,7 @@ export function ProfileSection({ onProfileUpdate }: { onProfileUpdate?: () => vo
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                            {profile.skills.map((skill, index) => (
-                                <Badge key={index} variant="outline" className="pl-3 pr-1 py-1 flex items-center gap-2">
-                                    {skill}
-                                    <button
-                                        onClick={() => removeSkill(skill)}
-                                        className="hover:bg-destructive/10 hover:text-destructive rounded-full p-0.5 transition-colors"
-                                    >
-                                        <X className="h-3 w-3" />
-                                    </button>
-                                </Badge>
-                            ))}
-                        </div>
+                        <SkillsList skills={profile.skills} onRemove={removeSkill} />
                     </CardContent>
                 </Card>
 
@@ -535,25 +526,14 @@ export function ProfileSection({ onProfileUpdate }: { onProfileUpdate?: () => vo
                         <CardDescription>Add your professional experience</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {profile.experience.map((exp, index) => (
-                            <div key={index} className="p-4 border rounded-lg relative group">
-                                <button
-                                    onClick={() => {
-                                        const newExp = [...profile.experience];
-                                        newExp.splice(index, 1);
-                                        setProfile({ ...profile, experience: newExp });
-                                    }}
-                                    className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <X className="h-4 w-4" />
-                                </button>
-                                <h4 className="font-semibold">{exp.title}</h4>
-                                <p className="text-sm text-muted-foreground">{exp.company}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {exp.start_date} - {exp.current ? "Present" : exp.end_date}
-                                </p>
-                            </div>
-                        ))}
+                        <ExperienceList
+                            experiences={profile.experience}
+                            onDelete={(index) => {
+                                const newExp = [...profile.experience];
+                                newExp.splice(index, 1);
+                                setProfile({ ...profile, experience: newExp });
+                            }}
+                        />
                         <div className="grid gap-4 p-4 border rounded-lg bg-muted/20">
                             <h4 className="text-sm font-medium">Add New Experience</h4>
                             <div className="grid md:grid-cols-2 gap-4">
@@ -603,23 +583,14 @@ export function ProfileSection({ onProfileUpdate }: { onProfileUpdate?: () => vo
                         <CardDescription>Add your educational background</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {profile.education.map((edu, index) => (
-                            <div key={index} className="p-4 border rounded-lg relative group">
-                                <button
-                                    onClick={() => {
-                                        const newEdu = [...profile.education];
-                                        newEdu.splice(index, 1);
-                                        setProfile({ ...profile, education: newEdu });
-                                    }}
-                                    className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <X className="h-4 w-4" />
-                                </button>
-                                <h4 className="font-semibold">{edu.school}</h4>
-                                <p className="text-sm text-muted-foreground">{edu.degree} in {edu.field}</p>
-                                <p className="text-xs text-muted-foreground mt-1">{edu.year}</p>
-                            </div>
-                        ))}
+                        <EducationList
+                            education={profile.education}
+                            onDelete={(index) => {
+                                const newEdu = [...profile.education];
+                                newEdu.splice(index, 1);
+                                setProfile({ ...profile, education: newEdu });
+                            }}
+                        />
                         <div className="grid gap-4 p-4 border rounded-lg bg-muted/20">
                             <h4 className="text-sm font-medium">Add New Education</h4>
                             <div className="grid md:grid-cols-2 gap-4">

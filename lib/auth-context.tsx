@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { apiClient } from "@/lib/api-client";
 
 export interface User {
@@ -26,48 +26,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
-  // Initialize auth state from localStorage
+  // Initialize auth state from in-memory session (no localStorage)
+  // NOTE: Auth session is lost on page refresh. Users must login again.
+  // This is by design for security (no sensitive tokens stored persistently).
   useEffect(() => {
-    const initAuth = () => {
-      if (typeof window !== "undefined") {
-        const storedUser = localStorage.getItem("user");
-        const token = localStorage.getItem("auth_token");
-
-        if (storedUser && token) {
-          try {
-            setUser(JSON.parse(storedUser));
-            apiClient.setToken(token);
-          } catch (err) {
-            console.error("Failed to parse stored user:", err);
-            localStorage.removeItem("user");
-            localStorage.removeItem("auth_token");
-          }
-        }
-      }
+    if (mountedRef.current) {
       setIsLoading(false);
-    };
-
-    initAuth();
+    }
   }, []);
 
   const login = async (email: string, password: string) => {
+    if (!mountedRef.current) return Promise.reject("Component unmounted");
+    
     setIsLoading(true);
     setError(null);
     try {
       const { user: userData } = await apiClient.login({ email, password });
-      setUser(userData);
+      if (mountedRef.current) {
+        setUser(userData);
+      }
       return userData;
     } catch (err: any) {
       const message = err.message || "Login failed";
-      setError(message);
+      if (mountedRef.current) {
+        setError(message);
+      }
       throw err;
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
   const register = async (email: string, password: string, fullName: string, role: "candidate" | "recruiter") => {
+    if (!mountedRef.current) return Promise.reject("Component unmounted");
+    
     setIsLoading(true);
     setError(null);
     try {
@@ -77,21 +73,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         full_name: fullName,
         role,
       });
-      setUser(userData);
+      if (mountedRef.current) {
+        setUser(userData);
+      }
       return userData;
     } catch (err: any) {
       const message = err.message || "Registration failed";
-      setError(message);
+      if (mountedRef.current) {
+        setError(message);
+      }
       throw err;
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
   const logout = () => {
     apiClient.clearAuth();
-    setUser(null);
-    setError(null);
+    if (mountedRef.current) {
+      setUser(null);
+      setError(null);
+    }
   };
 
   return (

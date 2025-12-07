@@ -4,6 +4,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from core.database import get_db
 from core.auth import require_candidate
+from core.logging import get_logger
 from models.user import User
 from models.job import Job
 from models.application import Application
@@ -17,15 +18,23 @@ import mimetypes
 import uuid
 import httpx
 from fastapi.responses import StreamingResponse
-from supabase import create_client, Client
 from core.config import settings
+from core.storage import get_storage_client
+from io import BytesIO
+from pypdf import PdfReader
+from sqlalchemy.orm.attributes import flag_modified
+from schemas.job import JobList, JobResponse
+from pydantic import BaseModel
 
-# Initialize Supabase Client
-supabase: Client = None
-if settings.SUPABASE_URL and settings.SUPABASE_KEY:
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-
+logger = get_logger()
 router = APIRouter()
+
+class CandidateStatsResponse(BaseModel):
+    """Response model for candidate dashboard statistics"""
+    total_applied: int
+    profile_views: int
+    resume_score: float
+    status_breakdown: dict
 
 def get_profile_by_user_id(db: Session, user_id: int):
     return db.query(CandidateProfile).filter(CandidateProfile.user_id == user_id).first()
@@ -75,8 +84,6 @@ async def get_profile(
     response.profile_completion = completion
     return response
 
-from sqlalchemy.orm.attributes import flag_modified
-
 @router.put("/profile", response_model=CandidateProfileResponse)
 async def update_profile(
     profile_in: CandidateProfileUpdate,
@@ -113,6 +120,33 @@ async def update_profile(
     response = CandidateProfileResponse.from_orm(profile)
     response.profile_completion = completion
     return response
+
+@router.get("/stats", response_model=CandidateStatsResponse)
+async def get_candidate_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate)
+):
+    """Get candidate dashboard statistics (applications, profile views, resume score)"""
+    profile = get_profile_by_user_id(db, current_user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Count total applications
+    applications = db.query(Application).filter(
+        Application.candidate_id == profile.id
+    ).all()
+    
+    # Calculate status breakdown
+    status_breakdown = {}
+    for app in applications:
+        status_breakdown[app.status] = status_breakdown.get(app.status, 0) + 1
+    
+    return CandidateStatsResponse(
+        total_applied=len(applications),
+        profile_views=profile.profile_views or 0,
+        resume_score=profile.resume_score or 0.0,
+        status_breakdown=status_breakdown
+    )
 
 @router.post("/apply/{job_id}", response_model=ApplicationResponse)
 async def apply_for_job(
@@ -270,8 +304,6 @@ async def get_my_applications(
 
     return {"applications": result}
 
-from schemas.job import JobList, JobResponse
-
 @router.get("/jobs", response_model=JobList)
 async def get_jobs(
     skip: int = 0,
@@ -309,11 +341,6 @@ async def get_recommended_jobs(
     return {"jobs": jobs}
 
 # Resume Management Endpoints (Refactored for Supabase)
-import shutil
-import os
-from fastapi.responses import FileResponse
-from pypdf import PdfReader
-from io import BytesIO
 
 @router.post("/resume/upload")
 async def upload_resume(
@@ -325,6 +352,7 @@ async def upload_resume(
     if not file.filename.lower().endswith(('.pdf', '.docx', '.txt')):
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, DOCX, and TXT are allowed.")
     
+    supabase = get_storage_client()
     # Check if Supabase is configured
     if not supabase:
         raise HTTPException(status_code=500, detail="Storage service not configured")
@@ -334,53 +362,68 @@ async def upload_resume(
     file_name = f"{current_user.id}/{uuid.uuid4()}{file_ext}"
     
     try:
-        # Read file content
+        # 1. Validate profile exists before upload
+        profile = get_profile_by_user_id(db, current_user.id)
+        if not profile:
+            profile = CandidateProfile(user_id=current_user.id)
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+        
+        # 2. Read file content
         file_content = await file.read()
         
-        # Upload to Supabase
+        # 3. Upload to Supabase
         res = supabase.storage.from_(bucket_name).upload(
             path=file_name,
             file=file_content,
             file_options={"content-type": file.content_type}
         )
         
-        # Get Public URL
+        # 4. Get Public URL
         public_url_resp = supabase.storage.from_(bucket_name).get_public_url(file_name)
         # Handle string or object response
         public_url = public_url_resp if isinstance(public_url_resp, str) else public_url_resp.public_url
 
-        # Update CandidateProfile
-        profile = get_profile_by_user_id(db, current_user.id)
-        if not profile:
-            profile = CandidateProfile(user_id=current_user.id)
-            db.add(profile)
+        # 5. Update CandidateProfile with transaction
+        try:
+            profile.resume_url = public_url
+            profile.resume_preview = file.filename
+            
+            # Reset analysis fields
+            profile.resume_score = None
+            profile.resume_analysis = None
+            profile.resume_summary = None
+            profile.resume_text = None
+            
+            # Also create/update Resume table for history/consistency
+            new_resume = Resume(
+                candidate_id=current_user.id,
+                title=file.filename,
+                file_url=public_url,
+                is_primary=True,
+                version=1
+            )
+            db.add(new_resume)
+            db.commit()
+            
+            return {"filename": file.filename, "url": public_url}
+        except Exception as db_err:
+            # If DB commit fails, rollback and clean up uploaded file
+            db.rollback()
+            logger.error(f"Database update failed: {db_err}", exc_info=True)
+            try:
+                supabase.storage.from_(bucket_name).remove([file_name])
+                logger.info(f"Cleaned up uploaded file: {file_name}")
+            except Exception as cleanup_err:
+                logger.error(f"Failed to cleanup uploaded file: {cleanup_err}")
+            raise HTTPException(status_code=500, detail="Failed to save resume metadata")
         
-        profile.resume_url = public_url
-        profile.resume_preview = file.filename
-        
-        # Reset analysis fields
-        profile.resume_score = None
-        profile.resume_analysis = None
-        profile.resume_summary = None
-        profile.resume_text = None
-        
-        # Also create/update Resume table for history/consistency
-        new_resume = Resume(
-            candidate_id=current_user.id,
-            title=file.filename,
-            file_url=public_url,
-            is_primary=True,
-            version=1
-        )
-        db.add(new_resume)
-        
-        db.commit()
-        
-        return {"filename": file.filename, "url": public_url}
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[Upload Error] {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logger.error(f"Resume upload failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Upload failed")
 
 @router.get("/resume/file")
 async def get_resume_file(
@@ -393,17 +436,40 @@ async def get_resume_file(
         
     # Check if remote URL (Supabase)
     if profile.resume_url.startswith("http"):
-        # Proxy the file from Supabase
+        # Proxy the file from Supabase using authenticated download if possible
+        # Or continue using httpx if public. 
+        # Safer to use storage API for private buckets.
+        
         async def iterfile():
-            async with httpx.AsyncClient() as client:
-                async with client.stream("GET", profile.resume_url) as response:
-                    async for chunk in response.aiter_bytes():
-                        yield chunk
+            try:
+                supabase = get_storage_client()
+                if supabase:
+                    # Extract path
+                    if f"/{settings.SUPABASE_STORAGE_BUCKET}/" in profile.resume_url:
+                        path = profile.resume_url.split(f"/{settings.SUPABASE_STORAGE_BUCKET}/")[-1]
+                    else:
+                        path = f"{current_user.id}/{profile.resume_preview}"
+                        
+                    # Download content (Sync method in Supabase lib)
+                    content = supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).download(path)
+                    yield content
+                else:
+                    # Fallback to direct HTTP if no client
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream("GET", profile.resume_url) as response:
+                            async for chunk in response.aiter_bytes():
+                                yield chunk
+            except Exception as e:
+                print(f"[Stream Error] {e}")
+                # Last resort fallback
+                async with httpx.AsyncClient() as client:
+                        async with client.stream("GET", profile.resume_url) as response:
+                            async for chunk in response.aiter_bytes():
+                                yield chunk
                         
         return StreamingResponse(iterfile(), media_type="application/pdf")
     
-    # Fallback for legacy local files (should be removed eventually)
-    return FileResponse(profile.resume_url, filename=profile.resume_preview or "resume.pdf", media_type="application/pdf")
+    raise HTTPException(status_code=404, detail="Resume file not found in storage")
 
 @router.delete("/resume")
 async def delete_resume(
@@ -412,24 +478,15 @@ async def delete_resume(
 ):
     profile = get_profile_by_user_id(db, current_user.id)
     if profile and profile.resume_url:
+        supabase = get_storage_client()
         # Try to delete from Supabase if it's a URL
         if profile.resume_url.startswith("http") and supabase:
             try:
                 # Extract path from URL (naive approach, better to store path)
-                # URL: https://.../storage/v1/object/public/resumes/USER_ID/UUID.pdf
-                # Path: USER_ID/UUID.pdf
-                # We can try to extract it from the URL structure or just extract the filename if we know it
                 path = profile.resume_url.split(f"/{settings.SUPABASE_STORAGE_BUCKET}/")[-1]
                 supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).remove([path])
             except Exception as e:
                 print(f"Error deleting from Supabase: {e}")
-        
-        # Fallback local delete
-        elif profile.resume_url and os.path.exists(profile.resume_url):
-            try:
-                os.remove(profile.resume_url)
-            except:
-                pass
                 
         profile.resume_url = None
         profile.resume_preview = None
@@ -452,11 +509,21 @@ async def extract_resume_text(
         
     text = ""
     try:
+        supabase = get_storage_client()
         # Handle remote URL
-        if profile.resume_url.startswith("http"):
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(profile.resume_url)
-                file_bytes = BytesIO(resp.content)
+        if profile.resume_url.startswith("http") and supabase:
+            # Extract path from URL to usage storage API
+            try:
+                # Naive path extraction
+                if f"/{settings.SUPABASE_STORAGE_BUCKET}/" in profile.resume_url:
+                    path = profile.resume_url.split(f"/{settings.SUPABASE_STORAGE_BUCKET}/")[-1]
+                else:
+                    # Fallback
+                    path = f"{current_user.id}/{profile.resume_preview}"
+                
+                # Use authenticated download
+                file_bytes_content = supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).download(path)
+                file_bytes = BytesIO(file_bytes_content)
                 
                 if profile.resume_url.lower().endswith('.pdf'):
                     reader = PdfReader(file_bytes)
@@ -465,17 +532,21 @@ async def extract_resume_text(
                 else:
                     text = file_bytes.read().decode('utf-8', errors='ignore')
 
-        # Fallback local
-        elif os.path.exists(profile.resume_url):
-             if profile.resume_url.lower().endswith('.pdf'):
-                reader = PdfReader(profile.resume_url)
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-             else:
-                with open(profile.resume_url, 'r', errors='ignore') as f:
-                    text = f.read()
+            except Exception as dl_err:
+                print(f"[Extract Error] Download failed: {dl_err}")
+                # Try fallback HTTP GET if download api fails
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(profile.resume_url)
+                    resp.raise_for_status()
+                    file_bytes = BytesIO(resp.content)
+                    if profile.resume_url.lower().endswith('.pdf'):
+                        reader = PdfReader(file_bytes)
+                        for page in reader.pages:
+                            text += page.extract_text() + "\n"
+                    else:
+                        text = file_bytes.read().decode('utf-8', errors='ignore')
         else:
-            raise HTTPException(status_code=404, detail="File not found")
+             raise HTTPException(status_code=404, detail="File not found in storage")
         
         # Save extracted text to DB
         profile.resume_text = text

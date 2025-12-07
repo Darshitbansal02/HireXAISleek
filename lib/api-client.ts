@@ -53,11 +53,16 @@ class ApiClient {
     private baseURL: string;
 
     constructor() {
-        this.baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
+        if (!process.env.NEXT_PUBLIC_API_BASE_URL) {
+            console.error("Missing NEXT_PUBLIC_API_BASE_URL");
+        }
+        this.baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+
         this.client = axios.create({
             baseURL: this.baseURL,
             headers: {
                 "Content-Type": "application/json",
+                "ngrok-skip-browser-warning": "true",
             },
         });
 
@@ -83,23 +88,50 @@ class ApiClient {
         );
     }
 
+    private inMemoryToken: string | null = null;
+
     setToken(token: string) {
+        // Store in memory only (not in localStorage for security)
+        this.inMemoryToken = token;
+        // DEPRECATED: Clear any old localStorage usage for backward compat
         if (typeof window !== "undefined") {
-            localStorage.setItem("auth_token", token);
+            try {
+                const oldToken = localStorage.getItem("auth_token");
+                if (oldToken) {
+                    console.warn("[DEPRECATED] Removing auth_token from localStorage. Use in-memory session instead.");
+                    localStorage.removeItem("auth_token");
+                }
+            } catch (e) { }
         }
     }
 
     getToken(): string | null {
+        // Try in-memory token first
+        if (this.inMemoryToken) {
+            return this.inMemoryToken;
+        }
+        // Fallback: attempt to read from localStorage (deprecated; log warning)
         if (typeof window !== "undefined") {
-            return localStorage.getItem("auth_token");
+            try {
+                const token = localStorage.getItem("auth_token");
+                if (token) {
+                    console.warn("[DEPRECATED] Auth token read from localStorage. Session will be lost on refresh.");
+                    return token;
+                }
+            } catch (e) { }
         }
         return null;
     }
 
     clearAuth() {
+        // Clear in-memory token
+        this.inMemoryToken = null;
+        // Clear localStorage (backward compat)
         if (typeof window !== "undefined") {
-            localStorage.removeItem("auth_token");
-            localStorage.removeItem("user");
+            try {
+                localStorage.removeItem("auth_token");
+                localStorage.removeItem("user");
+            } catch (e) { }
         }
     }
 
@@ -140,8 +172,16 @@ class ApiClient {
             const user = userResponse.data;
             console.log("[DEBUG] Login response user:", user);
 
+            // DO NOT store user in localStorage (use in-memory state in auth context)
+            // Clear any old user data from localStorage
             if (typeof window !== "undefined") {
-                localStorage.setItem("user", JSON.stringify(user));
+                try {
+                    const oldUser = localStorage.getItem("user");
+                    if (oldUser) {
+                        console.warn("[DEPRECATED] Removing user from localStorage. Use auth context instead.");
+                        localStorage.removeItem("user");
+                    }
+                } catch (e) { }
             }
             return { access_token, user };
         } catch (error) {
@@ -176,6 +216,10 @@ class ApiClient {
         } catch (error) {
             throw this.handleError(error);
         }
+    }
+
+    async getRecruiterJobs() {
+        return this.getMyJobs();
     }
 
     async getJobApplications(jobId: number) {
@@ -685,6 +729,15 @@ Use this exact schema:
         }
     }
 
+    async getMyInterviews() {
+        try {
+            const response = await this.client.get("/v1/interview/my-interviews");
+            return response.data;
+        } catch (error) {
+            throw this.handleError(error);
+        }
+    }
+
     async getInterviewDetails(roomId: string) {
         try {
             const response = await this.client.get(`/v1/interview/${roomId}`);
@@ -882,7 +935,6 @@ Use this exact schema:
     async logProctorEvent(assignmentId: string, eventType: string, payload: any = {}) {
         try {
             const response = await this.client.post("/v1/proctoring/log", {
-                assignment_id: assignmentId,
                 event_type: eventType,
                 payload: payload
             }, {

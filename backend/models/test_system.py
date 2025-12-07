@@ -43,11 +43,14 @@ class TestAssignment(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     scheduled_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, default="pending") # pending, started, completed, expired
+    attempt_count = Column(Integer, default=0)
+    meta = Column(JSON, nullable=True)
 
     test = relationship("Test", back_populates="assignments")
     submissions = relationship("Submission", back_populates="assignment")
     proctor_logs = relationship("ProctorLog", back_populates="assignment")
-    webcam_snapshots = Column(JSON, default=[]) # List of filenames
+    proctor_logs = relationship("ProctorLog", back_populates="assignment")
+    # webcam_snapshots removed for privacy compliance
 
 class Submission(Base):
     __tablename__ = "submissions"
@@ -69,9 +72,12 @@ class ProctorLog(Base):
     __tablename__ = "proctor_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    assignment_id = Column(UUID(as_uuid=True), ForeignKey("test_assignments.id", ondelete="CASCADE"))
+    assignment_id = Column(UUID(as_uuid=True), ForeignKey("test_assignments.id", ondelete="CASCADE"), nullable=True)
+    interview_room_id = Column(String, ForeignKey("interview_sessions.room_id", ondelete="CASCADE"), nullable=True)
+    severity = Column(String(10), nullable=False, default='LOW')
     event_type = Column(String, nullable=False) # tab_switch, fullscreen_exit, etc.
     payload = Column(JSON, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     assignment = relationship("TestAssignment", back_populates="proctor_logs")
+    interview_session = relationship("InterviewSession", foreign_keys=[interview_room_id])

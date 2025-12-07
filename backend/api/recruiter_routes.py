@@ -47,20 +47,8 @@ def post_job(payload: JobIn, db: Session = Depends(get_db), current_user: User =
 
 @router.get('/my-posts')
 def my_posts(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    # DEBUG LOGGING TO FILE
-    try:
-        with open("d:/HireXAISleek/debug_my_posts.log", "a") as f:
-            f.write(f"--- Request ---\n")
-            f.write(f"User ID: {current_user.id}\n")
-            f.write(f"User Email: {current_user.email}\n")
-            
-            jobs = db.query(Job).filter(Job.recruiter_id == current_user.id).all()
-            f.write(f"Jobs Found: {len(jobs)}\n")
-            for j in jobs:
-                f.write(f"  Job ID: {j.id}, Title: {j.title}\n")
-            f.write(f"---------------\n")
-    except Exception as e:
-        print(f"Logging failed: {e}")
+    # DEBUG LOGGING REMOVED
+
 
     # Filter by recruiter_id
     jobs = db.query(Job).filter(Job.recruiter_id == current_user.id).all()

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Video, User, Briefcase, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
+import { parseUTCTime } from "@/lib/utils";
 
 interface Interview {
     id: number;
@@ -34,21 +36,8 @@ export function RecruiterInterviewsSection() {
 
     const fetchInterviews = async () => {
         try {
-            const token = localStorage.getItem("auth_token");
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/interview/my-interviews`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                // We might need to fetch candidate details if not included in the interview response
-                // For now, let's assume the backend *should* return them, or we might need to update the backend.
-                // Checking the backend code... get_my_interviews returns InterviewSession objects.
-                // InterviewSession has relationships 'candidate' and 'job'.
-                // Pydantic model InterviewResponse might not include them by default.
-                // Let's check the backend response structure in a moment.
-                // For now, I'll assume we might need to enhance the backend or the frontend to display names.
-                setInterviews(data);
-            }
+            const data = await apiClient.getMyInterviews();
+            setInterviews(data || []);
         } catch (err) {
             console.error("Failed to fetch interviews", err);
         } finally {
@@ -99,7 +88,7 @@ export function RecruiterInterviewsSection() {
                                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                         <div className="flex items-center gap-1">
                                             <Calendar className="h-4 w-4" />
-                                            {new Date(interview.scheduled_at).toLocaleDateString(undefined, {
+                                            {parseUTCTime(interview.scheduled_at)?.toLocaleDateString(undefined, {
                                                 weekday: 'short',
                                                 year: 'numeric',
                                                 month: 'short',
@@ -108,7 +97,7 @@ export function RecruiterInterviewsSection() {
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <Clock className="h-4 w-4" />
-                                            {new Date(interview.scheduled_at).toLocaleTimeString(undefined, {
+                                            {parseUTCTime(interview.scheduled_at)?.toLocaleTimeString(undefined, {
                                                 hour: '2-digit',
                                                 minute: '2-digit',
                                                 timeZoneName: 'short'

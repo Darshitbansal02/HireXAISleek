@@ -192,6 +192,131 @@ function TestResultTable({ results }: { results: any[] }) {
     );
 }
 
+function ProctorTimeline({ logs }: { logs: any[] }) {
+    if (!logs || logs.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <ShieldAlert className="w-12 h-12 mb-4 opacity-20" />
+                <p>No proctoring violations recorded.</p>
+            </div>
+        );
+    }
+
+    // Sort logs by timestamp
+    const sortedLogs = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    return (
+        <div className="relative pl-8 space-y-8 py-4">
+            {/* Vertical Line */}
+            <div className="absolute left-3 top-4 bottom-4 w-0.5 bg-border" />
+
+            {sortedLogs.map((log, index) => {
+                const isCritical = ['screen_context_violation', 'confirmed_wrong_screen_shared', 'focus_lost_while_screen_sharing'].includes(log.event_type);
+                const isHighSeverity = ['multiple_faces', 'face_missing', 'virtual_device', 'multiple_test_tabs_detected', 'extension_detected'].includes(log.event_type);
+                const isMediumSeverity = ['tab_switch', 'window_blur', 'fullscreen_exit', 'copy_paste', 'devtools_open', 'screen_monitor_changed', 'screen_share_denied', 'clipboard_attempt'].includes(log.event_type);
+                const isScreenShareStart = log.event_type === 'screen_share_started';
+                const isScreenShareStop = log.event_type === 'screen_share_stopped' || log.event_type === 'screen_share_interrupted';
+
+                let colorClass = isCritical ? "bg-red-600" : isHighSeverity ? "bg-red-500" : isMediumSeverity ? "bg-orange-500" : "bg-blue-500";
+                if (isScreenShareStart) colorClass = "bg-green-500";
+                if (isScreenShareStop) colorClass = "bg-gray-500";
+
+                let icon = <CheckCircle className="w-4 h-4 text-white" />;
+                if (isCritical) icon = <ShieldAlert className="w-4 h-4 text-white animate-pulse" />;
+                else if (isHighSeverity) icon = <AlertTriangle className="w-4 h-4 text-white" />;
+                else if (isScreenShareStart || isScreenShareStop) icon = <Monitor className="w-4 h-4 text-white" />;
+                else if (log.event_type.includes('screen')) icon = <Monitor className="w-4 h-4 text-white" />;
+                else if (isMediumSeverity) icon = <ShieldAlert className="w-4 h-4 text-white" />;
+
+                // Enhanced Titles & Messages
+                let title = log.event_type.replace(/_/g, ' ');
+                let message = log.payload?.message || "No details provided";
+
+                if (log.event_type === 'screen_context_violation') {
+                    title = "Critical Monitor Violation";
+                    message = `Screen context changed! ${log.payload.reason || 'Unknown reason'}.`;
+                } else if (log.event_type === 'focus_lost_while_screen_sharing') {
+                    title = "Suspicious Multitasking";
+                } else if (log.event_type === 'confirmed_wrong_screen_shared') {
+                    title = "Wrong Interface Shared";
+                } else if (log.event_type === 'extension_detected') {
+                    title = "Prohibited Extension";
+                    message = `Unauthorized browser extension detected: ${log.payload.reason || 'Suspicious Activity'}`;
+                    icon = <ShieldAlert className="w-4 h-4 text-white" />;
+                } else if (log.event_type === 'screen_context_baseline_locked') {
+                    title = "Security Checkpoint";
+                    message = "Screen context baseline locked. Monitoring active.";
+                    colorClass = "bg-blue-600";
+                    icon = <Monitor className="w-4 h-4 text-white" />;
+                }
+
+                return (
+                    <div key={log.id || index} className="relative flex items-start group">
+                        {/* Dot */}
+                        <div className={`absolute -left-[29px] w-8 h-8 rounded-full flex items-center justify-center border-4 border-background ${colorClass} shadow-sm z-10`}>
+                            {icon}
+                        </div>
+
+                        <div className={`flex-1 bg-card border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow ${isCritical ? 'border-red-200 bg-red-50/10' : ''}`}>
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h4 className="font-semibold capitalize flex items-center gap-2">
+                                        {title}
+                                        {isCritical && <Badge variant="destructive" className="text-[10px] h-5">CRITICAL</Badge>}
+                                        {isHighSeverity && <Badge variant="destructive" className="text-[10px] h-5">High</Badge>}
+                                        {isScreenShareStart && <Badge className="text-[10px] h-5 bg-green-500 hover:bg-green-600">Active</Badge>}
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground font-mono mt-1">
+                                        {new Date(log.timestamp).toLocaleTimeString()} • {new Date(log.timestamp).toLocaleDateString()}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="text-sm bg-muted/30 p-3 rounded-md border border-border/50">
+                                {message}
+
+                                {/* Metadata Badges */}
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                    {log.payload?.baseline && (
+                                        <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200">
+                                            Baseline: {typeof log.payload.baseline === 'object' ? JSON.stringify(log.payload.baseline).slice(0, 20) + '...' : log.payload.baseline}
+                                        </Badge>
+                                    )}
+                                    {log.payload?.current && (
+                                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
+                                            Detected: {typeof log.payload.current === 'object' ? JSON.stringify(log.payload.current).slice(0, 20) + '...' : log.payload.current}
+                                        </Badge>
+                                    )}
+                                    {log.payload?.faces_count !== undefined && (
+                                        <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-200">
+                                            Faces: {log.payload.faces_count}
+                                        </Badge>
+                                    )}
+                                    {log.payload?.duration_missing_seconds !== undefined && (
+                                        <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-200">
+                                            Missing: {Number(log.payload.duration_missing_seconds).toFixed(1)}s
+                                        </Badge>
+                                    )}
+                                    {log.payload?.duration_away_seconds !== undefined && (
+                                        <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-200">
+                                            Away: {Number(log.payload.duration_away_seconds).toFixed(1)}s
+                                        </Badge>
+                                    )}
+                                    {log.payload?.metadata?.new_res && (
+                                        <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-200">
+                                            Res: {log.payload.metadata.new_res}
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 export default function AssignmentDetailPage() {
     const params = useParams();
     const assignmentId = params.assignmentId as string;
@@ -252,9 +377,15 @@ export default function AssignmentDetailPage() {
                             </div>
                             <div className="text-right">
                                 <div className="text-3xl font-bold mb-1">{assignment.score}%</div>
-                                <Badge variant={assignment.score >= 70 ? "default" : "destructive"}>
-                                    {assignment.score >= 70 ? "Passed" : "Failed"}
-                                </Badge>
+                                {assignment.status === 'terminated_fraud' ? (
+                                    <Badge variant="destructive" className="bg-red-700 hover:bg-red-800">
+                                        Terminated: Fraud
+                                    </Badge>
+                                ) : (
+                                    <Badge variant={assignment.score >= 70 ? "default" : "destructive"}>
+                                        {assignment.score >= 70 ? "Passed" : "Failed"}
+                                    </Badge>
+                                )}
                             </div>
                         </div>
                     </CardHeader>
@@ -356,63 +487,13 @@ export default function AssignmentDetailPage() {
                     <TabsContent value="proctoring">
                         <Card>
                             <CardHeader>
-                                <CardTitle>Proctoring Logs</CardTitle>
+                                <CardTitle className="flex items-center gap-2">
+                                    <ShieldAlert className="w-5 h-5 text-primary" />
+                                    Proctoring Timeline
+                                </CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Time</TableHead>
-                                            <TableHead>Event Type</TableHead>
-                                            <TableHead>Details</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {proctor_logs.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={3} className="text-center text-muted-foreground">No violations recorded.</TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            proctor_logs.map((log: any) => (
-                                                <TableRow key={log.id}>
-                                                    <TableCell className="font-mono text-xs">
-                                                        {new Date(log.timestamp).toLocaleTimeString()}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className="capitalize">
-                                                            {log.event_type.replace('_', ' ')}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {log.payload?.message || JSON.stringify(log.payload)}
-
-                                                        {/* Detailed Metadata Display */}
-                                                        {log.payload?.faces_count !== undefined && (
-                                                            <div className="text-xs text-red-500 mt-1 font-medium">
-                                                                Detected: {log.payload.faces_count} faces
-                                                            </div>
-                                                        )}
-                                                        {log.payload?.duration_missing_seconds !== undefined && (
-                                                            <div className="text-xs text-orange-500 mt-1">
-                                                                Missing for: {Number(log.payload.duration_missing_seconds).toFixed(1)}s
-                                                            </div>
-                                                        )}
-                                                        {log.payload?.duration_away_seconds !== undefined && (
-                                                            <div className="text-xs text-blue-500 mt-1">
-                                                                Away for: {Number(log.payload.duration_away_seconds).toFixed(1)}s
-                                                            </div>
-                                                        )}
-                                                        {log.payload?.visited_url && (
-                                                            <div className="text-xs text-red-500 mt-1">
-                                                                Visited: {log.payload.visited_url}
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                <ProctorTimeline logs={proctor_logs} />
                             </CardContent>
                         </Card>
                     </TabsContent>

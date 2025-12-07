@@ -25,9 +25,10 @@ interface JobCardProps {
   onClick?: () => void;
   isApplying?: boolean;
   hasApplied?: boolean;
+  footer?: React.ReactNode;
 }
 
-export function JobCard({ job, onApply, onClick, isApplying = false, hasApplied = false }: JobCardProps) {
+export function JobCard({ job, onApply, onClick, isApplying = false, hasApplied = false, footer }: JobCardProps) {
   const handleApplyClick = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click when clicking apply
     if (onApply) {
@@ -138,40 +139,44 @@ export function JobCard({ job, onApply, onClick, isApplying = false, hasApplied 
           )}
 
           {/* Action Buttons */}
-          <div className="flex gap-3 pt-2">
-            <Button
-              className="flex-1 font-semibold shadow-md hover:shadow-lg transition-all bg-gradient-to-r from-primary to-accent hover:opacity-90"
-              onClick={handleApplyClick}
-              disabled={isApplying || hasApplied}
-              data-testid={`button-apply-${job.id}`}
-            >
-              {hasApplied ? (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Applied
-                </>
-              ) : isApplying ? (
-                <>
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                  />
-                  Applying...
-                </>
-              ) : (
-                "Apply Now"
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="hover:bg-accent/10 hover:border-primary/30 transition-colors"
-              data-testid={`button-save-${job.id}`}
-            >
-              <Bookmark className="h-4 w-4" />
-            </Button>
-          </div>
+          {footer ? (
+            footer
+          ) : (
+            <div className="flex gap-3 pt-2">
+              <Button
+                className="flex-1 font-semibold shadow-md hover:shadow-lg transition-all bg-gradient-to-r from-primary to-accent hover:opacity-90"
+                onClick={handleApplyClick}
+                disabled={isApplying || hasApplied}
+                data-testid={`button-apply-${job.id}`}
+              >
+                {hasApplied ? (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Applied
+                  </>
+                ) : isApplying ? (
+                  <>
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                    />
+                    Applying...
+                  </>
+                ) : (
+                  "Apply Now"
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="hover:bg-accent/10 hover:border-primary/30 transition-colors"
+                data-testid={`button-save-${job.id}`}
+              >
+                <Bookmark className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </motion.div>

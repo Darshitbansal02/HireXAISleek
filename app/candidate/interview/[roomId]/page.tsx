@@ -24,7 +24,14 @@ export default function CandidateInterviewPage() {
                 setInterview(data);
             } catch (err: any) {
                 console.error("Failed to fetch interview:", err);
-                setError("Failed to load interview details. It may have expired or been deleted.");
+                // Check if it's an authorization error
+                if (err.response?.status === 403) {
+                    setError("You are not authorized to join this interview. This interview is scheduled for another candidate.");
+                } else if (err.response?.status === 404) {
+                    setError("This interview does not exist or has been deleted.");
+                } else {
+                    setError("Failed to load interview details. Please try again.");
+                }
             } finally {
                 setLoading(false);
             }

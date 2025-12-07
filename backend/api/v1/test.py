@@ -7,8 +7,7 @@ from models.user import User
 from models.test import Test, TestAttempt
 from pydantic import BaseModel
 from datetime import datetime
-import os
-import shutil
+
 from core.config import settings
 
 router = APIRouter()
@@ -105,33 +104,7 @@ async def log_warning(
     db.commit()
     return {"message": "Warning logged"}
 
-@router.post("/upload-snapshot/{attempt_id}")
-async def upload_snapshot(
-    attempt_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    attempt = db.query(TestAttempt).filter(TestAttempt.id == attempt_id).first()
-    if not attempt or attempt.candidate_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Attempt not found")
-        
-    # Ensure uploads directory exists
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    
-    filename = f"snapshot_{attempt_id}_{datetime.utcnow().timestamp()}.jpg"
-    file_path = os.path.join(settings.UPLOAD_DIR, filename)
-    
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    # Update snapshots list
-    snapshots = list(attempt.webcam_snapshots) if attempt.webcam_snapshots else []
-    snapshots.append(filename)
-    attempt.webcam_snapshots = snapshots
-    
-    db.commit()
-    return {"message": "Snapshot uploaded"}
+
 
 @router.post("/submit/{attempt_id}")
 async def submit_test(

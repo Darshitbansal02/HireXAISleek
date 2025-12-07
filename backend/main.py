@@ -35,17 +35,42 @@ Base.metadata.create_all(bind=engine)
 print(f"[DEBUG] BACKEND_CORS_ORIGINS found in settings: {settings.BACKEND_CORS_ORIGINS}")
 origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
 
-# Fallback if no origins defined (should not happen with new defaults)
+# Fallback if no origins defined
 if not origins:
-    origins = ["http://localhost:3000"]
+    print("[WARNING] No BACKEND_CORS_ORIGINS defined in .env. CORS may block requests.")
 print(f"[DEBUG] Allowed Origins for CORS: {origins}")
+
+# Ensure localhost is always allowed (critical for local dev accessing ngrok backend)
+if "http://localhost:3000" not in origins:
+    origins.append("http://localhost:3000")
+if "http://127.0.0.1:3000" not in origins:
+    origins.append("http://127.0.0.1:3000")
+
+# Environment-based CORS configuration
+allow_origin_regex = None
+if settings.ENVIRONMENT == "development":
+    allow_origin_regex = r"https://.*\.ngrok-free\.app"  # Allow ngrok in dev only
+else:
+    print("[WARNING] ngrok origins disabled in production")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    # Include common custom headers used by the frontend (ngrok helper, X-Requested-With, etc.)
+    # Keep this list explicit in production; for local/dev you can relax to ['*'] if needed.
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "ngrok-skip-browser-warning",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+    ],
 )
 
 # Global Exception Handlers
@@ -89,10 +114,20 @@ async def llm_exception_handler(request: Request, exc: LLMError):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global error: {exc}")
+    # Fix: Use unsafe=True or catch formatting errors for loguru with SQL params in errors
+    try:
+        logger.error(f"Unhandled exception: {exc}")
+    except KeyError:
+        # Fallback if loguru fails to format message with braces (e.g. SQL params)
+        logger.error("Unhandled exception occurred (message formatting failed)")
+        logger.exception(exc)
+    
+    # Don't expose exception details in production
+    detail = str(exc) if settings.ENVIRONMENT == "development" else "Internal server error"
+    
     return JSONResponse(
         status_code=500,
-        content={"success": False, "error": "Internal Server Error", "details": str(exc)},
+        content={"success": False, "error": "Internal Server Error", "details": detail},
     )
 
 # Include Routers
@@ -130,19 +165,24 @@ async def root():
     }
 
 @app.get("/health")
-async def health():
-    return {"status": "healthy", "socketio": "enabled"}
-
 @app.get("/api/health")
-async def api_health():
-    return {"status": "healthy", "socketio": "enabled"}
+async def health():
+    """Health check endpoint - indicates server is running and ready"""
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "socketio": "enabled"
+    }
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 HireXAI Backend Started Successfully")
     logger.info("📡 Socket.IO server initialized")
+    # Initialize Supabase storage client
+    from core.storage import init_supabase
+    init_supabase()
 
-# Import Socket.IO instance and wrap FastAPI with it
+# Import Socket.IO instance - WRAP AFTER ALL MIDDLEWARE AND ROUTES ARE CONFIGURED
 from sio import sio
 
 # IMPORTANT: This must be the last line - it wraps the FastAPI app with Socket.IO

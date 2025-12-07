@@ -139,7 +139,19 @@ IMPORTANT:
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
                 # Ensure we get a list
-                parsed = self._parse_response(content)
+                parsed = self._parse_response(content) 
+                
+                # Fix double escaped newlines in canonical_solution
+                if isinstance(parsed, list):
+                    for q in parsed:
+                        if "canonical_solution" in q and isinstance(q["canonical_solution"], str):
+                            q["canonical_solution"] = q["canonical_solution"].replace("\\n", "\n")
+                elif isinstance(parsed, dict):
+                    if "questions" in parsed and isinstance(parsed["questions"], list):
+                        for q in parsed["questions"]:
+                             if "canonical_solution" in q and isinstance(q["canonical_solution"], str):
+                                q["canonical_solution"] = q["canonical_solution"].replace("\\n", "\n")
+
                 if isinstance(parsed, dict) and "questions" in parsed:
                      return json.dumps(parsed["questions"]) # Handle case where LLM wraps list in object
                 return content

@@ -14,13 +14,13 @@ import { SavedJobs } from "@/components/SavedJobs";
 import { RecommendedJobs } from "@/components/RecommendedJobs";
 import { AnalyticsChart } from "@/components/AnalyticsChart";
 import Link from "next/link";
-import { FileText, Briefcase, TrendingUp, Settings, LogOut, Loader, Bookmark, Sparkles, Video, Clock, Play } from "lucide-react";
+import { parseUTCTime } from "@/lib/utils";
+import { FileText, Briefcase, TrendingUp, Settings, LogOut, Loader, Bookmark, Sparkles, Video, Clock, Play, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { apiClient } from "@/lib/api-client";
 import { JobDetailModal, Job } from "@/components/JobDetailModal";
 import { ProfileSection } from "@/components/ProfileSection";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { AlertCircle, ArrowRight } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -77,14 +77,8 @@ export default function CandidateDashboard() {
 
     const fetchInterviews = async () => {
         try {
-            const token = localStorage.getItem("auth_token");
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/interview/my-interviews`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setScheduledInterviews(data);
-            }
+            const data = await apiClient.getMyInterviews();
+            setScheduledInterviews(data || []);
         } catch (err) {
             console.error("Failed to fetch interviews", err);
         }
@@ -380,7 +374,7 @@ export default function CandidateDashboard() {
                                             {scheduledInterviews
                                                 .filter(interview => interview.status !== 'completed')
                                                 .map((interview) => {
-                                                    const scheduledDate = new Date(interview.scheduled_at);
+                                                    const scheduledDate = parseUTCTime(interview.scheduled_at) || new Date();
                                                     const now = new Date();
                                                     const timeDiff = scheduledDate.getTime() - now.getTime();
                                                     // Allow joining 5 minutes before
@@ -433,8 +427,22 @@ export default function CandidateDashboard() {
                                     ) : (
                                         <div className="space-y-4">
                                             {assignedTests.map((test) => {
-                                                const isExpired = test.expires_at && new Date(test.expires_at) < new Date();
-                                                const isLate = test.scheduled_at && new Date(test.scheduled_at) < new Date() && test.status === 'pending';
+                                                const scheduledDate = test.scheduled_at ? new Date(test.scheduled_at) : null;
+                                                const now = new Date();
+                                                const isExpired = test.expires_at && new Date(test.expires_at) < now;
+                                                const isFuture = scheduledDate && scheduledDate > now;
+                                                const isLate = scheduledDate && scheduledDate < now && test.status === 'pending';
+
+                                                // Resume Logic
+                                                const attempts = test.attempt_count || 0;
+                                                const maxAttempts = 3;
+                                                const canResume = test.status === 'started' && attempts < maxAttempts;
+                                                const isMaxAttempts = test.status === 'started' && attempts >= maxAttempts;
+
+                                                // Countdown Logic (Simple inline text for now, could be a component)
+                                                const timeUntilStart = isFuture ? (scheduledDate!.getTime() - now.getTime()) : 0;
+                                                const hoursUntil = Math.floor(timeUntilStart / (1000 * 60 * 60));
+                                                const minutesUntil = Math.floor((timeUntilStart % (1000 * 60 * 60)) / (1000 * 60));
 
                                                 return (
                                                     <div key={test.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -447,22 +455,51 @@ export default function CandidateDashboard() {
                                                                     {isExpired ? 'Expired' : test.status.replace('_', ' ')}
                                                                 </span>
                                                                 {isLate && !isExpired && (
-                                                                    <span className="text-orange-500 font-medium">• Late Start (Time Reduced)</span>
+                                                                    <span className="text-orange-500 font-medium">• Late Start</span>
+                                                                )}
+                                                                {canResume && !isExpired && (
+                                                                    <span className="text-blue-500 font-medium">• {maxAttempts - attempts} attempts left</span>
+                                                                )}
+                                                                {isFuture && (
+                                                                    <span className="text-indigo-500 font-bold flex items-center gap-1">
+                                                                        • Starts in {hoursUntil}h {minutesUntil}m
+                                                                    </span>
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        {test.status === 'pending' && !isExpired && (
+                                                        {/* Status Button */}
+                                                        {!isExpired && (test.status === 'pending' || canResume) && (
                                                             <Button
                                                                 size="sm"
                                                                 onClick={() => router.push(`/candidate/test/${test.id}`)}
-                                                                variant={isLate ? "secondary" : "default"}
+                                                                variant={canResume ? "outline" : (isLate ? "secondary" : (isFuture ? "ghost" : "default"))}
+                                                                disabled={!!isFuture}
+                                                                title={isFuture ? `Test starts at ${scheduledDate?.toLocaleString()}` : ""}
                                                             >
-                                                                <Play className="h-3 w-3 mr-1" /> {isLate ? "Start Now" : "Start"}
+                                                                {isFuture ? (
+                                                                    <span className="flex items-center gap-2">
+                                                                        <Clock className="h-3 w-3" />
+                                                                        Wait for Start
+                                                                    </span>
+                                                                ) : (
+                                                                    <>
+                                                                        <Play className="h-3 w-3 mr-1" />
+                                                                        {canResume ? "Resume Test" : (isLate ? "Start Now" : "Start")}
+                                                                    </>
+                                                                )}
                                                             </Button>
                                                         )}
+
                                                         {isExpired && (
                                                             <Button size="sm" variant="ghost" disabled className="text-destructive">
                                                                 Expired
+                                                            </Button>
+                                                        )}
+
+                                                        {/* Max Attempts Indicator */}
+                                                        {!isExpired && isMaxAttempts && (
+                                                            <Button size="sm" variant="ghost" disabled className="text-muted-foreground">
+                                                                Max Attempts
                                                             </Button>
                                                         )}
                                                     </div>
@@ -561,8 +598,7 @@ export default function CandidateDashboard() {
                                             hasApplied={appliedJobs.has(job.id)}
                                         />
                                     );
-                                })
-                                }
+                                })}
                             </div>
                         )}
                     </div>
@@ -581,7 +617,9 @@ export default function CandidateDashboard() {
                 )}
 
                 {activeTab === "profile" && (
-                    <ProfileSection onProfileUpdate={fetchProfileCompletion} />
+                    <div className="flex justify-center">
+                        <ProfileSection onProfileUpdate={fetchProfileCompletion} />
+                    </div>
                 )}
             </div>
 
@@ -593,7 +631,6 @@ export default function CandidateDashboard() {
                 isApplying={selectedJob ? applyingJobs.has(selectedJob.id) : false}
             />
 
-            {/* Profile Incomplete Modal */}
             <Dialog open={showIncompleteModal} onOpenChange={setShowIncompleteModal}>
                 <DialogContent className="sm:max-w-md border-destructive/50">
                     <DialogHeader>

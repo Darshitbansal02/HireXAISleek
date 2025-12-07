@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 
 from core.database import get_db
@@ -26,7 +26,11 @@ async def list_assignments(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    assignments = db.query(TestAssignment).filter(TestAssignment.candidate_id == current_user.id).all()
+    # Use eager loading to prevent N+1 queries
+    assignments = db.query(TestAssignment)\
+        .options(joinedload(TestAssignment.test).joinedload(Test.questions))\
+        .filter(TestAssignment.candidate_id == current_user.id)\
+        .all()
     
     results = []
     for a in assignments:
@@ -50,7 +54,8 @@ async def list_assignments(
             expires_at=a.expires_at,
             scheduled_at=a.scheduled_at,
             candidate_id=a.candidate_id,
-            score=current_score
+            score=current_score,
+            attempt_count=a.attempt_count
         ))
     return results
 
@@ -60,7 +65,15 @@ async def get_assignment_detail(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    assignment = db.query(TestAssignment).filter(TestAssignment.id == assignment_id).first()
+    # Use eager loading to prevent N+1 queries
+    assignment = db.query(TestAssignment)\
+        .options(
+            joinedload(TestAssignment.test).joinedload(Test.questions),
+            joinedload(TestAssignment.submissions)
+        )\
+        .filter(TestAssignment.id == assignment_id)\
+        .first()
+    
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
         
@@ -107,7 +120,8 @@ async def get_assignment_detail(
         expires_at=assignment.expires_at,
         scheduled_at=assignment.scheduled_at,
         candidate_id=assignment.candidate_id,
-        score=current_score
+        score=current_score,
+        attempt_count=assignment.attempt_count
     )
 
 @router.post("/{assignment_id}/start")
@@ -123,14 +137,41 @@ async def start_test(
     if str(assignment.candidate_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if assignment.scheduled_at and datetime.utcnow() < assignment.scheduled_at:
-        raise HTTPException(status_code=403, detail="Test has not started yet")
+    # 3. Check Schedule
+    if assignment.scheduled_at and datetime.now(timezone.utc) < assignment.scheduled_at:
+        wait_time = (assignment.scheduled_at - datetime.now(timezone.utc)).total_seconds()
+        minutes = int(wait_time // 60)
+        raise HTTPException(
+            status_code=403,
+            detail=f"Test is scheduled for {assignment.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}. Please wait {minutes} minutes."
+        )
 
-    if assignment.status != "pending":
-         return {"message": "Test already started or completed", "status": assignment.status}
+    # 4. Check Attempts (Max 3)
+    if assignment.attempt_count >= 3:
+        raise HTTPException(
+            status_code=403, 
+            detail="Maximum attempts reached (3). You cannot restart this test."
+        )
 
-    assignment.status = "started"
-    assignment.starts_at = datetime.utcnow()
+    # 5. Check Duration / Expiry
+    if assignment.status == "completed":
+         raise HTTPException(status_code=400, detail="Test already submitted")
+         
+    if assignment.expires_at and datetime.now(timezone.utc) > assignment.expires_at:
+        assignment.status = "expired"
+        db.commit()
+        raise HTTPException(status_code=403, detail="Test time has expired")
+
+    # Start Test Logic
+    if assignment.status == "pending":
+        assignment.status = "started"
+        assignment.starts_at = datetime.now(timezone.utc)
+        # Calculate strict expires_at based on duration
+        duration_minutes = assignment.test.duration_minutes or 60
+        assignment.expires_at = assignment.starts_at + timedelta(minutes=duration_minutes)
+    
+    # Increment attempt count
+    assignment.attempt_count += 1
     db.commit()
     return {"status": "started", "starts_at": assignment.starts_at}
 

@@ -53,17 +53,13 @@ export function NotificationBell() {
         return () => clearInterval(interval);
     }, []);
 
-    const markAsRead = async (id: number, linkUrl?: string) => {
+    const markAsRead = async (id: number) => {
         try {
             await apiClient.markNotificationRead(id);
             setNotifications(prev => prev.map(n =>
                 n.id === id ? { ...n, is_read: true } : n
             ));
             setUnreadCount(prev => Math.max(0, prev - 1));
-
-            if (linkUrl) {
-                window.location.href = linkUrl;
-            }
         } catch (error) {
             console.error("Failed to mark notification as read:", error);
         }
@@ -132,7 +128,7 @@ export function NotificationBell() {
                                 <DropdownMenuItem
                                     key={notification.id}
                                     className={`flex flex-col items-start gap-1 p-3 cursor-pointer ${!notification.is_read ? 'bg-muted/50' : ''}`}
-                                    onClick={() => markAsRead(notification.id, notification.link_url)}
+                                    onClick={() => markAsRead(notification.id)}
                                 >
                                     <div className="flex w-full justify-between items-start">
                                         <span className={`font-medium text-sm ${!notification.is_read ? 'text-primary' : ''}`}>

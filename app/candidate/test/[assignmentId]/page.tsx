@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import MCQChallenge from '@/components/test/MCQChallenge';
 import CodingChallenge from '@/components/test/CodingChallenge';
 import MobileBlocker from '@/components/test/MobileBlocker';
 import ProctoringGuard from '@/components/test/ProctoringGuard';
+import { useSystemIntegrity } from '@/hooks/useSystemIntegrity';
 
 export default function TestPage() {
     const params = useParams();
@@ -26,6 +27,8 @@ export default function TestPage() {
     const [loading, setLoading] = useState(true);
     const [assignment, setAssignment] = useState<any>(null);
     const [started, setStarted] = useState(false);
+    const [accessDenied, setAccessDenied] = useState(false);
+    const [blockReason, setBlockReason] = useState("");
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
     // Question State Management
@@ -40,6 +43,13 @@ export default function TestPage() {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [warningCount, setWarningCount] = useState(0);
     const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
+    const [isTerminating, setIsTerminating] = useState(false); // Immediate UI lock
+
+    // Pre-flight Integrity Check (Must be top level)
+    const { isCompromised } = useSystemIntegrity({
+        isActive: false, // Only monitoring mode for start screen
+        onViolation: () => { }
+    });
 
     // Run Code State
     const [isRunning, setIsRunning] = useState(false);
@@ -63,8 +73,11 @@ export default function TestPage() {
                     }
                 }
 
-                if (data.status === "started" || data.status === "completed") {
+                if (data.status === "completed") {
                     setStarted(true);
+                }
+
+                if (data.status === "started" || data.status === "completed") {
                     if (data.expires_at) {
                         const expires = new Date(data.expires_at).getTime();
                         const now = new Date().getTime();
@@ -103,7 +116,7 @@ export default function TestPage() {
         setRunError(null);
     }, [currentQuestionIndex]);
 
-    const [lastSaved, setLastSaved] = useState<Date | null>(null);
+    const [, setLastSaved] = useState<Date | null>(null);
 
     // Save answer locally and to server (Autosave)
     useEffect(() => {
@@ -155,31 +168,11 @@ export default function TestPage() {
             }, 1000);
             return () => clearInterval(timer);
         } else if (timeLeft === 0) {
-            toast.warning("Time is up!", { duration: 5000 });
-            handleFinalSubmit(); // Auto-submit on timeout
+            toast.warning("Time is up! Submitting test...", { duration: 5000 });
+            setTimeLeft(null);
+            handleFinalSubmit();
         }
     }, [started, timeLeft]);
-
-    const handleStart = async () => {
-        try {
-            await apiClient.startTest(assignmentId);
-            setStarted(true);
-            toast.success("Test started! Good luck.");
-            const data = await apiClient.getAssignment(assignmentId);
-            setAssignment(data);
-            if (data.expires_at) {
-                const expires = new Date(data.expires_at).getTime();
-                const now = new Date().getTime();
-                setTimeLeft(Math.max(0, Math.floor((expires - now) / 1000)));
-            }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error("Test has not started yet.");
-            } else {
-                toast.error("Failed to start test");
-            }
-        }
-    };
 
     const handleViolation = (type: string) => {
         setWarningCount(prev => prev + 1);
@@ -187,6 +180,7 @@ export default function TestPage() {
     };
 
     const handleTerminate = async () => {
+        setIsTerminating(true); // Lock UI immediately
         toast.error("Test terminated due to excessive violations.", { duration: 5000 });
         setSubmitting(true);
         try {
@@ -260,6 +254,34 @@ export default function TestPage() {
         }
     };
 
+    const handleStart = async () => {
+        if (scheduledAt && scheduledAt > new Date()) {
+            toast.error("It is not yet time to start the test.");
+            return;
+        }
+        try {
+            await apiClient.startTest(assignmentId);
+            setStarted(true);
+            toast.success(assignment.status === 'started' ? "Test Resumed." : "Test started! Good luck.");
+
+            // Refresh assignment data to get updated attempt count / times
+            const data = await apiClient.getAssignment(assignmentId);
+            setAssignment(data);
+            if (data.expires_at) {
+                const expires = new Date(data.expires_at).getTime();
+                const now = new Date().getTime();
+                setTimeLeft(Math.max(0, Math.floor((expires - now) / 1000)));
+            }
+        } catch (error: any) {
+            if (error.response?.status === 403) {
+                setBlockReason(error.response.data.detail || "Access Denied");
+                setAccessDenied(true);
+            } else {
+                toast.error("Failed to start test");
+            }
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen bg-background text-foreground">
@@ -268,30 +290,20 @@ export default function TestPage() {
         );
     }
 
-    if (!assignment) {
-        return <div className="p-8 text-center">Assignment not found.</div>;
-    }
-
-    if (scheduledAt && scheduledAt > new Date()) {
+    if (accessDenied) {
         return (
             <div className="flex items-center justify-center h-screen bg-background p-4">
-                <Card className="w-full max-w-lg shadow-2xl border-primary/10">
+                <Card className="w-full max-w-md shadow-2xl border-red-200">
                     <CardHeader className="text-center pb-2">
-                        <CardTitle className="text-2xl font-bold tracking-tight">Assessment Scheduled</CardTitle>
+                        <div className="flex justify-center mb-4">
+                            <AlertTriangle className="w-12 h-12 text-destructive" />
+                        </div>
+                        <CardTitle className="text-2xl font-bold tracking-tight text-destructive">Access Denied</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6 text-center">
-                        <div className="flex flex-col items-center justify-center py-8">
-                            <Clock className="w-16 h-16 text-primary mb-4 animate-pulse" />
-                            <h3 className="text-xl font-semibold mb-2">{assignment.test.title}</h3>
-                            <p className="text-muted-foreground">
-                                This test is scheduled to start at:
-                            </p>
-                            <div className="mt-4 px-6 py-3 bg-muted rounded-lg font-mono text-lg font-bold">
-                                {scheduledAt.toLocaleString()}
-                            </div>
-                        </div>
+                        <p className="text-muted-foreground text-lg">{blockReason}</p>
                         <Button variant="outline" onClick={() => router.push("/candidate")} className="w-full">
-                            Back to Dashboard
+                            Return to Dashboard
                         </Button>
                     </CardContent>
                 </Card>
@@ -299,13 +311,95 @@ export default function TestPage() {
         );
     }
 
+    if (!assignment) {
+        return <div className="p-8 text-center">Assignment not found.</div>;
+    }
+
+    if (assignment.status === 'terminated_fraud' || isTerminating) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-background p-4 animate-in fade-in duration-500">
+                <Card className="w-full max-w-lg shadow-2xl border-destructive/20 bg-destructive/5">
+                    <CardHeader className="text-center pb-2">
+                        <div className="flex justify-center mb-4">
+                            {isTerminating ? (
+                                <Loader2 className="w-12 h-12 text-destructive animate-spin" />
+                            ) : (
+                                <div className="p-4 rounded-full bg-destructive/10">
+                                    <AlertTriangle className="w-12 h-12 text-destructive" />
+                                </div>
+                            )}
+                        </div>
+                        <CardTitle className="text-2xl font-bold tracking-tight text-destructive">
+                            {isTerminating ? "Terminating Session..." : "Test Terminated"}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6 text-center">
+                        <div className="p-4 bg-background rounded-xl border border-destructive/10">
+                            <h3 className="font-semibold mb-1">Security Policy Violation</h3>
+                            <p className="text-muted-foreground text-sm">
+                                The system detected repeated or critical security violations.
+                                As per strict proctoring rules, your exam is being terminated.
+                            </p>
+                        </div>
+                        {!isTerminating && (
+                            <Button variant="outline" onClick={() => router.push("/candidate")} className="w-full">
+                                Return to Dashboard
+                            </Button>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+
+
     if (!started) {
         return (
             <MobileBlocker>
+                {/* Pre-flight Blocker */}
+                {isCompromised && (
+                    <div className="fixed inset-0 z-[9999] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+                        <Card className="w-full max-w-lg shadow-2xl border-destructive/20 bg-destructive/5">
+                            <CardHeader className="text-center pb-2">
+                                <div className="flex justify-center mb-4">
+                                    <div className="p-4 rounded-full bg-destructive/10 animate-pulse">
+                                        <AlertTriangle className="w-12 h-12 text-destructive" />
+                                    </div>
+                                </div>
+                                <CardTitle className="text-2xl font-bold tracking-tight text-destructive">
+                                    System Integrity Check Failed
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-6 text-center">
+                                <p className="text-muted-foreground text-lg">
+                                    We detected an open Developer Tools window or resized viewport.
+                                    This is a violation of the exam environment rules.
+                                </p>
+
+                                <div className="p-4 bg-background rounded-xl border border-destructive/10 text-left">
+                                    <p className="font-semibold text-destructive mb-2">Required Actions:</p>
+                                    <ul className="list-disc list-inside text-sm text-foreground/80 space-y-1">
+                                        <li>Close Developer Tools (F12 / Ctrl+Shift+I)</li>
+                                        <li>Maximize your browser window completely</li>
+                                        <li>Ensure no sidebars are docked</li>
+                                    </ul>
+                                </div>
+
+                                <Button size="lg" className="w-full bg-destructive hover:bg-destructive/90 text-white shadow-lg shadow-destructive/20" onClick={() => window.location.reload()}>
+                                    I have fixed it, Refresh Page
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
+                )}
+
                 <div className="flex items-center justify-center h-screen bg-background p-4">
                     <Card className="w-full max-w-2xl shadow-2xl border-primary/10">
                         <CardHeader className="text-center pb-2">
-                            <CardTitle className="text-3xl font-bold tracking-tight">{assignment.test.title}</CardTitle>
+                            <CardTitle className="text-3xl font-bold tracking-tight">
+                                {assignment.status === 'started' ? `Resume: ${assignment.test.title}` : assignment.test.title}
+                            </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <p className="text-muted-foreground text-center text-lg">{assignment.test.description}</p>
@@ -322,6 +416,13 @@ export default function TestPage() {
                                     <span className="text-xs text-muted-foreground uppercase tracking-wider">Questions</span>
                                 </div>
                             </div>
+
+                            {assignment.status === 'started' && (
+                                <div className="p-4 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl border border-blue-500/20 text-center">
+                                    <p className="font-semibold">You are resuming this test.</p>
+                                    <p className="text-sm">Attempts Used: {assignment.attempt_count || 0} / 3</p>
+                                </div>
+                            )}
 
                             <Separator />
 
@@ -342,11 +443,15 @@ export default function TestPage() {
                                         <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
                                         Webcam snapshots will be taken periodically for proctoring.
                                     </li>
+                                    <li className="flex items-start gap-2">
+                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
+                                        Hiding the screen share bar is NOT a violation.
+                                    </li>
                                 </ul>
                             </div>
 
                             <Button onClick={handleStart} className="w-full text-lg h-12 shadow-lg shadow-primary/20" size="lg">
-                                Start Test Now
+                                {assignment.status === 'started' ? 'Resume Test' : 'Start Test Now'}
                             </Button>
                         </CardContent>
                     </Card>
@@ -426,48 +531,19 @@ export default function TestPage() {
                 <Dialog open={showConfirmSubmit} onOpenChange={setShowConfirmSubmit}>
                     <DialogContent>
                         <DialogHeader>
-                            <DialogTitle>Confirm Submission</DialogTitle>
+                            <DialogTitle>Finish Test?</DialogTitle>
                             <DialogDescription>
-                                Are you sure you want to finish the test? This action cannot be undone.
+                                Are you sure you want to quit? You cannot return to the test once submitted.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setShowConfirmSubmit(false)}>Cancel</Button>
-                            <Button onClick={handleFinalSubmit} disabled={submitting} variant="destructive">
-                                {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                                Finish Test
+                            <Button onClick={handleFinalSubmit} disabled={submitting}>
+                                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Submit"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-
-                {/* Navigation Buttons (Fixed Bottom) */}
-                <div className="fixed bottom-6 right-6 flex gap-2 z-40">
-                    <Button
-                        variant="secondary"
-                        onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-                        disabled={currentQuestionIndex === 0}
-                        className="shadow-lg"
-                    >
-                        Previous
-                    </Button>
-                    {currentQuestionIndex < assignment.test.questions.length - 1 ? (
-                        <Button
-                            onClick={() => setCurrentQuestionIndex(prev => Math.min(assignment.test.questions.length - 1, prev + 1))}
-                            className="shadow-lg"
-                        >
-                            Next
-                        </Button>
-                    ) : (
-                        <Button
-                            variant="destructive"
-                            onClick={() => setShowConfirmSubmit(true)}
-                            className="shadow-lg"
-                        >
-                            Submit Test
-                        </Button>
-                    )}
-                </div>
             </ProctoringGuard>
         </MobileBlocker>
     );

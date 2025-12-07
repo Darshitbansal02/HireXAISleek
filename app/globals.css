@@ -358,19 +358,24 @@
   body * {
     visibility: hidden;
   }
-  #resume-preview, #resume-preview * {
+
+  #resume-preview,
+  #resume-preview * {
     visibility: visible;
   }
+
   #resume-preview {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     margin: 0;
-    padding: 20mm !important; /* Ensure padding is kept */
+    padding: 20mm !important;
+    /* Ensure padding is kept */
     box-shadow: none !important;
     border: none !important;
   }
+
   @page {
     margin: 0;
     size: auto;

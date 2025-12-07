@@ -38,7 +38,7 @@ export function ScheduleModal({ candidateId, jobId, isOpen, onClose, onScheduled
             const scheduledAt = new Date(`${date}T${time}`).toISOString();
 
             if (eventType === 'interview' && mode === 'online') {
-                const token = localStorage.getItem("auth_token");
+                const token = apiClient.getToken();
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/interview/create`, {
                     method: 'POST',
                     headers: {

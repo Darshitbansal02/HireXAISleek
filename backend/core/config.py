@@ -11,9 +11,10 @@ env_path = os.path.join(os.path.dirname(current_file_dir), ".env")
 class Settings(BaseSettings):
     PROJECT_NAME: str = "HireXAI"
     API_V1_STR: str = "/api/v1"
+    ENVIRONMENT: str = "development"  # development or production
     
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"]
+    BACKEND_CORS_ORIGINS: List[str] = []
     # Database
     SUPABASE_DB_URL: Optional[str] = None
     DATABASE_URL: Optional[str] = None
@@ -32,8 +33,10 @@ class Settings(BaseSettings):
             if supabase_url.startswith("postgres://"):
                 return supabase_url.replace("postgres://", "postgresql://", 1)
             return supabase_url
-            
-        raise ValueError("No valid database URL found. SUPABASE_DB_URL or DATABASE_URL must be set.")
+        
+        # Fallback to SQLite for development if no production URL configured
+        print("[WARNING] No Supabase or PostgreSQL URL found. Using SQLite for development.")
+        return "sqlite:///./hirexai.db"
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:

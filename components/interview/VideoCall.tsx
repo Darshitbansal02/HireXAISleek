@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useWebRTC } from '@/hooks/useWebRTC';
+import { useFaceDetection } from '@/hooks/useFaceDetection';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Play, Users, Calendar, AlertCircle, Loader2, Monitor, PenTool } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Play, Users, Calendar, AlertCircle, Loader2, Monitor, PenTool, ChevronDown, ChevronUp } from 'lucide-react';
+import { cn, parseUTCTime } from '@/lib/utils';
 import { DeviceSettings } from './DeviceSettings';
 import { Whiteboard } from './Whiteboard';
 
@@ -17,6 +19,10 @@ interface VideoCallProps {
 }
 
 export function VideoCall({ roomId, userId, isInitiator, onLeave, scheduledAt, participantName }: VideoCallProps) {
+    const { user } = useAuth();
+    const userRole = user?.role ?? 'candidate';
+    const effectiveInitiator = isInitiator || userRole === 'recruiter';
+
     const {
         userVideo,
         remoteVideo,
@@ -33,11 +39,41 @@ export function VideoCall({ roomId, userId, isInitiator, onLeave, scheduledAt, p
         toggleScreenShare,
         isScreenSharing,
         socket,
-        proctorEvents
+        proctorEvents,
+        sendProctorEvent,
+        proctoringEnabled
     } = useWebRTC({
         roomId,
         userId,
-        isInitiator
+        userRole,
+        isInitiator: effectiveInitiator,
+        enableProctoring: userRole === 'candidate' // Enable proctoring for candidates only
+    });
+
+    // --- Face Detection (Proctoring) ---
+    // Only run for candidates (not initiator) and when connected
+    const { isFaceMissing } = useFaceDetection({
+        videoRef: userVideo,
+        isActive: !isInitiator && isConnected,
+        onMultipleFaces: (count) => {
+            sendProctorEvent({
+                type: 'multiple_faces',
+                message: `Multiple faces detected (${count})`,
+                room_id: roomId,
+                timestamp: new Date().toISOString()
+            });
+        },
+        onFaceMissing: (duration) => {
+            // Warn if missing for > 5 seconds
+            if (duration > 5) {
+                sendProctorEvent({
+                    type: 'face_missing',
+                    message: `Face missing for ${duration.toFixed(1)}s`,
+                    room_id: roomId,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
     });
 
     const [isMuted, setIsMuted] = useState(false);
@@ -71,11 +107,13 @@ export function VideoCall({ roomId, userId, isInitiator, onLeave, scheduledAt, p
         setIsVideoOff(!isVideoOff);
     };
 
+    const [showLogDetails, setShowLogDetails] = useState(false);
+
     const formatScheduledTime = (dateString?: string) => {
         if (!dateString) return null;
         try {
-            return new Date(dateString).toLocaleString("en-IN", {
-                timeZone: "Asia/Kolkata",
+            // Use local time (undefined locale uses browser default)
+            return parseUTCTime(dateString)?.toLocaleString(undefined, {
                 dateStyle: "medium",
                 timeStyle: "short"
             });
@@ -268,32 +306,51 @@ export function VideoCall({ roomId, userId, isInitiator, onLeave, scheduledAt, p
 
             {/* Activity Log (Recruiter Only) */}
             {isInitiator && (
-                <div className="absolute top-20 left-4 z-30 w-80 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden flex flex-col max-h-[300px] transition-all hover:bg-black/90">
-                    <div className="p-3 border-b border-white/10 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-yellow-500" />
-                        <span className="text-xs font-semibold text-white/90">Activity Log</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-white/20">
-                        {proctorEvents.length === 0 ? (
-                            <p className="text-xs text-white/30 italic">No suspicious activity detected.</p>
-                        ) : (
-                            proctorEvents.map((event, i) => (
-                                <div key={i} className="flex gap-2 text-xs animate-in slide-in-from-left-2 duration-300">
-                                    <span className="text-white/40 font-mono shrink-0">
-                                        {new Date(event.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                    </span>
-                                    <span className={cn(
-                                        "font-medium",
-                                        event.type === 'tab_switch' || event.type === 'window_blur' || event.type === 'print_screen' || event.type === 'virtual_device' ? "text-red-400" :
-                                            event.type === 'screen_share_denied' ? "text-orange-400" :
-                                                "text-green-400"
-                                    )}>
-                                        {event.message || event.type}
-                                    </span>
-                                </div>
-                            ))
+                <div
+                    className={cn(
+                        "absolute top-20 left-4 z-30 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden flex flex-col transition-all hover:bg-black/90",
+                        showLogDetails ? "w-80 max-h-[300px]" : "w-auto max-h-[50px] cursor-pointer"
+                    )}
+                    onClick={() => !showLogDetails && setShowLogDetails(true)}
+                >
+                    <div className="p-3 border-b border-white/10 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                            <AlertCircle className={cn("w-4 h-4", proctorEvents.length > 0 ? "text-red-500 animate-pulse" : "text-green-500")} />
+                            <span className="text-xs font-semibold text-white/90">
+                                {showLogDetails ? "Activity Log" : `${proctorEvents.length} Events`}
+                            </span>
+                        </div>
+                        {showLogDetails && (
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-white/50 hover:text-white" onClick={(e) => { e.stopPropagation(); setShowLogDetails(false); }}>
+                                <span className="sr-only">Close</span>
+                                &times;
+                            </Button>
                         )}
                     </div>
+
+                    {showLogDetails && (
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-white/20">
+                            {proctorEvents.length === 0 ? (
+                                <p className="text-xs text-white/30 italic">No suspicious activity detected.</p>
+                            ) : (
+                                proctorEvents.map((event, i) => (
+                                    <div key={i} className="flex gap-2 text-xs animate-in slide-in-from-left-2 duration-300">
+                                        <span className="text-white/40 font-mono shrink-0">
+                                            {new Date(event.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                        </span>
+                                        <span className={cn(
+                                            "font-medium",
+                                            event.type === 'tab_switch' || event.type === 'window_blur' || event.type === 'print_screen' || event.type === 'virtual_device' ? "text-red-400" :
+                                                event.type === 'screen_share_denied' ? "text-orange-400" :
+                                                    "text-green-400"
+                                        )}>
+                                            {event.message || event.type}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

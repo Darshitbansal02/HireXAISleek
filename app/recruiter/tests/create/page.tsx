@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from "@/components/ui/button";
 import { toast } from 'sonner';
 import { Loader2, Save, ChevronLeft, Sparkles } from 'lucide-react';
@@ -33,17 +34,13 @@ export default function CreateTestPage() {
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [aiModalType, setAiModalType] = useState<'mcq' | 'coding'>('coding');
 
+    const { user } = useAuth();
+
     useEffect(() => {
-        const userStr = localStorage.getItem("user");
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                if (user && user.id) setRecruiterId(user.id);
-            } catch (e) {
-                console.error("Failed to parse user", e);
-            }
+        if (user && user.id) {
+            setRecruiterId(user.id);
         }
-    }, []);
+    }, [user]);
 
     // --- Question Management ---
 

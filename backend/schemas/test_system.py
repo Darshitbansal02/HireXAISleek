@@ -82,6 +82,7 @@ class AssignmentPublic(BaseModel):
     candidate_id: int 
     score: Optional[float]
     proctor_logs: List[Dict[str, Any]] = []
+    attempt_count: int = 0  # Added field
 
 class SubmissionResult(BaseModel):
     id: UUID4

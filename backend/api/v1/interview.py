@@ -116,9 +116,21 @@ async def get_interview_details(
     
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
-        
-    # Security check: only participants can view details
-    if current_user.id not in [interview.recruiter_id, interview.candidate_id] and current_user.role != "admin":
+    
+    # SECURITY: Enforce strict access control
+    if current_user.role == "candidate":
+        # CANDIDATES can ONLY join if they are the scheduled candidate
+        if current_user.id != interview.candidate_id:
+            raise HTTPException(
+                status_code=403, 
+                detail="You are not authorized to join this interview. This interview is scheduled for another candidate."
+            )
+    elif current_user.role == "recruiter":
+        # RECRUITERS can only join their own interviews
+        if current_user.id != interview.recruiter_id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="You did not schedule this interview")
+    elif current_user.role != "admin":
+        # Only recruiters, candidates, and admins can access interviews
         raise HTTPException(status_code=403, detail="Not authorized to view this interview")
         
     return interview
@@ -137,6 +149,10 @@ def delete_interview(
     if current_user.role not in ["recruiter", "admin"] and interview.recruiter_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the host can end/delete the interview")
         
+    # Manual Cascade Delete: Remove associated proctor logs first
+    from models.test_system import ProctorLog
+    db.query(ProctorLog).filter(ProctorLog.interview_room_id == room_id).delete()
+    
     db.delete(interview)
     db.commit()
     return {"success": True, "message": "Interview ended and deleted"}

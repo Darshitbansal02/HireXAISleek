@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Trash2, Eye, Loader2, MapPin, Clock, Users as UsersIcon, FileText, X, AlertCircle, User, Briefcase, GraduationCap, Phone } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { JobCard } from "@/components/JobCard";
 
 // 1. FIXED INTERFACE: Added missing props for delete and update actions
 interface MyJobsSectionProps {
@@ -70,53 +71,50 @@ export function MyJobsSection({
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {jobs.map((job) => (
-                            <Card key={job.id} className={`border ${selectedJobId === job.id ? 'border-primary' : 'border-border'} transition-all duration-200`}>
-                                <CardContent className="p-4 space-y-3">
-                                    <div>
-                                        <div className="flex justify-between items-start">
-                                            <h3 className="font-semibold text-lg">{job.title}</h3>
-                                            {job.status && (
-                                                <Badge variant={job.status === 'active' ? 'default' : 'secondary'}>
-                                                    {job.status}
-                                                </Badge>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-wrap gap-2 mt-2 text-sm text-muted-foreground">
-                                            <span className="flex items-center gap-1">
-                                                <MapPin className="h-3 w-3" />
-                                                {job.location}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <Clock className="h-3 w-3" />
-                                                {job.type}
-                                            </span>
-                                        </div>
-                                    </div>
+                            <div key={job.id} className={selectedJobId === job.id ? 'ring-2 ring-primary rounded-xl' : ''}>
+                                <JobCard
+                                    job={{
+                                        id: job.id,
+                                        title: job.title,
+                                        company: job.company || "Hiring Company",
+                                        location: job.location,
+                                        type: job.type,
+                                        postedAt: new Date(job.created_at).toLocaleDateString(), // Assuming created_at exists
+                                        skills: job.skills ? (Array.isArray(job.skills) ? job.skills : job.skills.split(',')) : [],
+                                        minExperience: job.min_experience
+                                    }}
+                                    onClick={() => onViewApplications(job.id)}
+                                    footer={
+                                        <div className="flex gap-2 pt-2">
+                                            <Button
+                                                size="sm"
+                                                variant={selectedJobId === job.id ? "secondary" : "outline"}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onViewApplications(job.id);
+                                                }}
+                                                className="flex-1"
+                                            >
+                                                <Eye className="h-4 w-4 mr-2" />
+                                                {selectedJobId === job.id ? "Hide Applicants" : "View Applicants"}
+                                            </Button>
 
-                                    <div className="flex gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant={selectedJobId === job.id ? "secondary" : "outline"}
-                                            onClick={() => onViewApplications(job.id)}
-                                            className="flex-1"
-                                        >
-                                            <Eye className="h-4 w-4 mr-2" />
-                                            {selectedJobId === job.id ? "Hide Applicants" : "View Applicants"}
-                                        </Button>
-
-                                        {/* DELETE BUTTON IMPLEMENTATION */}
-                                        <Button
-                                            size="sm"
-                                            variant="destructive"
-                                            onClick={() => onDeleteJob(job.id)}
-                                            disabled={isDeleting}
-                                            title="Delete Job Posting"
-                                        >
-                                            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
+                                            <Button
+                                                size="sm"
+                                                variant="destructive"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteJob(job.id);
+                                                }}
+                                                disabled={isDeleting}
+                                                title="Delete Job Posting"
+                                            >
+                                                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                            </Button>
+                                        </div>
+                                    }
+                                />
+                            </div>
                         ))}
                     </CardContent>
                 </Card>
