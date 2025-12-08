@@ -1,17 +1,36 @@
 services:
   - type: web
     name: hirexai-backend
-    env: python
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port 10000
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.9"
+      - key: ENVIRONMENT
+        value: production
+      # Database
       - key: SUPABASE_DB_URL
         sync: false
-      - key: BACKEND_CORS_ORIGINS
+      - key: SUPABASE_URL
         sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      # Security
       - key: SECRET_KEY
         generateValue: true
+      - key: TESTS_AES_KEY
+        generateValue: true
+      # CORS - Update after deploying frontend
+      - key: BACKEND_CORS_ORIGINS
+        value: '["*"]'
+      # AI Services
       - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # Code Execution
+      - key: JUDGE0_API_KEY
         sync: false

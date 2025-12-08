@@ -211,13 +211,14 @@ function ProctorTimeline({ logs }: { logs: any[] }) {
             <div className="absolute left-3 top-4 bottom-4 w-0.5 bg-border" />
 
             {sortedLogs.map((log, index) => {
-                const isCritical = ['screen_context_violation', 'confirmed_wrong_screen_shared', 'focus_lost_while_screen_sharing'].includes(log.event_type);
-                const isHighSeverity = ['multiple_faces', 'face_missing', 'virtual_device', 'multiple_test_tabs_detected', 'extension_detected'].includes(log.event_type);
-                const isMediumSeverity = ['tab_switch', 'window_blur', 'fullscreen_exit', 'copy_paste', 'devtools_open', 'screen_monitor_changed', 'screen_share_denied', 'clipboard_attempt'].includes(log.event_type);
+                const isCritical = ['screen_context_violation', 'confirmed_wrong_screen_shared', 'focus_lost_while_screen_sharing', 'ai_api_detected'].includes(log.event_type);
+                const isHighSeverity = ['multiple_faces', 'face_missing', 'virtual_device', 'multiple_test_tabs_detected', 'extension_detected', 'clipboard_paste_detected', 'screenshot_attempt', 'devtools_attempt', 'viewport_compromised'].includes(log.event_type);
+                const isMediumSeverity = ['tab_switch', 'window_blur', 'fullscreen_exit', 'copy_paste', 'devtools_open', 'screen_monitor_changed', 'screen_share_denied', 'clipboard_attempt', 'keystroke_anomaly', 'focus_lost'].includes(log.event_type);
                 const isScreenShareStart = log.event_type === 'screen_share_started';
                 const isScreenShareStop = log.event_type === 'screen_share_stopped' || log.event_type === 'screen_share_interrupted';
+                const isInfoEvent = ['screen_context_baseline_locked', 'keystroke_baseline_established'].includes(log.event_type);
 
-                let colorClass = isCritical ? "bg-red-600" : isHighSeverity ? "bg-red-500" : isMediumSeverity ? "bg-orange-500" : "bg-blue-500";
+                let colorClass = isCritical ? "bg-red-600" : isHighSeverity ? "bg-red-500" : isMediumSeverity ? "bg-orange-500" : isInfoEvent ? "bg-blue-500" : "bg-blue-500";
                 if (isScreenShareStart) colorClass = "bg-green-500";
                 if (isScreenShareStop) colorClass = "bg-gray-500";
 
@@ -248,6 +249,20 @@ function ProctorTimeline({ logs }: { logs: any[] }) {
                     message = "Screen context baseline locked. Monitoring active.";
                     colorClass = "bg-blue-600";
                     icon = <Monitor className="w-4 h-4 text-white" />;
+                } else if (log.event_type === 'ai_api_detected') {
+                    title = "🚨 AI Service Detected";
+                    message = `Candidate accessed AI service: ${log.payload.domain || 'Unknown'}. URL: ${log.payload.url || 'N/A'}`;
+                    colorClass = "bg-red-700";
+                } else if (log.event_type === 'clipboard_paste_detected') {
+                    title = "Large Paste Detected";
+                    message = `Candidate pasted ${log.payload.contentLength || 'N/A'} characters. ${log.payload.message || ''}`;
+                } else if (log.event_type === 'keystroke_anomaly') {
+                    title = "Typing Pattern Anomaly";
+                    message = `${log.payload.reason || 'Unusual typing behavior detected'}. WPM: ${log.payload.metrics?.wpm || 'N/A'}`;
+                } else if (log.event_type === 'keystroke_baseline_established') {
+                    title = "Typing Baseline Set";
+                    message = `Normal typing speed: ${log.payload.baseline?.wpm || 'N/A'} WPM`;
+                    colorClass = "bg-blue-500";
                 }
 
                 return (
@@ -377,9 +392,9 @@ export default function AssignmentDetailPage() {
                             </div>
                             <div className="text-right">
                                 <div className="text-3xl font-bold mb-1">{assignment.score}%</div>
-                                {assignment.status === 'terminated_fraud' ? (
+                                {assignment.status === 'terminated_fraud' || assignment.status === 'terminated' ? (
                                     <Badge variant="destructive" className="bg-red-700 hover:bg-red-800">
-                                        Terminated: Fraud
+                                        ⚠️ TERMINATED
                                     </Badge>
                                 ) : (
                                     <Badge variant={assignment.score >= 70 ? "default" : "destructive"}>
@@ -410,6 +425,36 @@ export default function AssignmentDetailPage() {
                                 </CardContent>
                             </Card>
                         </div>
+
+                        {/* Termination Summary (if terminated) */}
+                        {(assignment.status === 'terminated_fraud' || assignment.status === 'terminated') && (
+                            <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                                <h4 className="font-semibold text-red-600 mb-2 flex items-center gap-2">
+                                    <ShieldAlert className="w-5 h-5" />
+                                    Exam Terminated
+                                </h4>
+                                <p className="text-sm text-muted-foreground mb-2">
+                                    {assignment.warning_count >= 5
+                                        ? `Maximum warning limit reached (${assignment.warning_count}/5 warnings).`
+                                        : 'Critical security violation detected.'
+                                    }
+                                </p>
+                                {proctor_logs.length > 0 && (
+                                    <div className="text-sm">
+                                        <span className="font-medium">Key Violations: </span>
+                                        {proctor_logs
+                                            .filter((l: any) => ['ai_api_detected', 'screen_context_violation', 'extension_detected', 'confirmed_wrong_screen_shared', 'tab_switch', 'focus_lost_while_screen_sharing'].includes(l.event_type))
+                                            .slice(0, 3)
+                                            .map((l: any, i: number) => (
+                                                <Badge key={i} variant="outline" className="mr-1 text-xs bg-red-50 text-red-600 border-red-200">
+                                                    {l.event_type.replace(/_/g, ' ')}
+                                                </Badge>
+                                            ))
+                                        }
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 

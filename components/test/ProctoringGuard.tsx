@@ -20,7 +20,10 @@ import { useFaceDetection } from '@/hooks/useFaceDetection';
 import useScreenShareProctor from '@/hooks/useScreenShareProctor';
 import useSingleTabEnforcer from '@/hooks/useSingleTabEnforcer';
 import { useSystemIntegrity } from '@/hooks/useSystemIntegrity';
-import { useExtensionDetector } from '@/hooks/useExtensionDetector';
+// Advanced Detection Hooks
+import { useNetworkMonitor } from '@/hooks/useNetworkMonitor';
+import { useClipboardMonitor } from '@/hooks/useClipboardMonitor';
+import { useKeystrokeDynamics } from '@/hooks/useKeystrokeDynamics';
 
 interface ProctoringGuardProps {
     assignmentId: string;
@@ -428,10 +431,32 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
         }
     });
 
-    // --- Extension Detection ---
-    useExtensionDetector({
+    // --- Advanced Detection: Network Monitor (AI API calls) ---
+    useNetworkMonitor({
         assignmentId,
-        isActive: isFullscreen && !gracePeriod
+        isActive: isFullscreen && !gracePeriod,
+        onViolation: (domain) => {
+            handleViolation('ai_api_detected', `Detected request to AI service: ${domain}`, { domain });
+        }
+    });
+
+    // --- Advanced Detection: Clipboard Monitor (Long pastes) ---
+    useClipboardMonitor({
+        assignmentId,
+        isActive: isFullscreen && !gracePeriod,
+        pasteThreshold: 100, // Flag pastes > 100 chars
+        onViolation: (contentLength) => {
+            // Log handled internally by hook
+        }
+    });
+
+    // --- Advanced Detection: Keystroke Dynamics (Typing patterns) ---
+    useKeystrokeDynamics({
+        assignmentId,
+        isActive: isFullscreen && !gracePeriod,
+        onAnomaly: (reason, metrics) => {
+            // Log handled internally by hook
+        }
     });
 
     // --- Draggable Logic ---

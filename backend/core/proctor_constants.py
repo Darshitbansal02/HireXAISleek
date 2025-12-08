@@ -22,7 +22,7 @@ class ProctorEventType(str, Enum):
     CLIPBOARD_ATTEMPT = "clipboard_attempt"
     SCREENSHOT_ATTEMPT = "screenshot_attempt"
     FOCUS_LOST = "focus_lost"
-    # New Events
+    # Screen Context Events
     SCREEN_CONTEXT_VIOLATION = "screen_context_violation"
     FOCUS_LOST_WHILE_SCREEN_SHARING = "focus_lost_while_screen_sharing"
     CONFIRMED_WRONG_SCREEN_SHARED = "confirmed_wrong_screen_shared"
@@ -32,6 +32,11 @@ class ProctorEventType(str, Enum):
     DEVTOOLS_ATTEMPT = "devtools_attempt"
     VIEWPORT_COMPROMISED = "viewport_compromised"
     SOURCE_VIEW_ATTEMPT = "source_view_attempt"
+    # Advanced Detection Events (New)
+    AI_API_DETECTED = "ai_api_detected"
+    CLIPBOARD_PASTE_DETECTED = "clipboard_paste_detected"
+    KEYSTROKE_ANOMALY = "keystroke_anomaly"
+    KEYSTROKE_BASELINE_ESTABLISHED = "keystroke_baseline_established"
 
 
 class ProctorEventSeverity(str, Enum):
@@ -75,7 +80,14 @@ EVENT_SEVERITY_MAP: Dict[ProctorEventType, ProctorEventSeverity] = {
     ProctorEventType.VIEWPORT_COMPROMISED: ProctorEventSeverity.HIGH,
     ProctorEventType.DEVTOOLS_ATTEMPT: ProctorEventSeverity.HIGH,
     ProctorEventType.SOURCE_VIEW_ATTEMPT: ProctorEventSeverity.HIGH,
+    
+    # Advanced Detection Events (New)
+    ProctorEventType.AI_API_DETECTED: ProctorEventSeverity.CRITICAL,
+    ProctorEventType.CLIPBOARD_PASTE_DETECTED: ProctorEventSeverity.HIGH,
+    ProctorEventType.KEYSTROKE_ANOMALY: ProctorEventSeverity.MEDIUM,
+    ProctorEventType.KEYSTROKE_BASELINE_ESTABLISHED: ProctorEventSeverity.LOW,
 }
+
 
 
 def get_event_severity(event_type: str) -> ProctorEventSeverity:

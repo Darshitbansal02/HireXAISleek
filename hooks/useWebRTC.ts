@@ -63,7 +63,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
         // clear any handshake retry timers
         try {
             Object.values(retryTimersRef.current).forEach((t) => clearTimeout(t));
-        } catch (e) {}
+        } catch (e) { }
         retryTimersRef.current = {};
         retryCountsRef.current = {};
         currentTargetRef.current = null;
@@ -78,7 +78,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
             if (t) clearTimeout(t);
             delete retryTimersRef.current[targetSid];
             delete retryCountsRef.current[targetSid];
-        } catch (e) {}
+        } catch (e) { }
     }, []);
 
     const scheduleHandshakeRetry = useCallback((targetSid: string) => {
@@ -102,12 +102,32 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
                 return;
             }
 
+            // CRITICAL FIX: Check signaling state before destroying peer
+            // If peer is waiting for answer (have-local-offer), don't destroy it!
+            if (peerRef.current) {
+                try {
+                    const pc = (peerRef.current as any)?._pc;
+                    const state = pc?.signalingState;
+                    if (state === 'have-local-offer') {
+                        console.log(`   ⏳ Peer in 'have-local-offer' state, waiting for answer... (not retrying)`);
+                        // Schedule another check without recreating
+                        if (retryCountsRef.current[targetSid] < MAX_HANDSHAKE_RETRIES) {
+                            retryCountsRef.current[targetSid] = attempt; // Don't increment
+                            scheduleHandshakeRetry(targetSid);
+                        }
+                        return;
+                    }
+                } catch (e) {
+                    // Couldn't check state, proceed with retry
+                }
+            }
+
             console.warn(`🔁 Handshake retry attempt ${attempt} for ${targetSid}`);
             // Recreate peer as initiator to force a fresh offer
             try {
                 // destroy existing peer if any
                 if (peerRef.current) {
-                    try { peerRef.current.removeAllListeners(); peerRef.current.destroy(); } catch (e) {}
+                    try { peerRef.current.removeAllListeners(); peerRef.current.destroy(); } catch (e) { }
                     peerRef.current = null;
                 }
                 // Create a fresh peer (initiator) via ref
@@ -240,7 +260,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
 
         if (peerRef.current) {
             console.warn('⚠️ Peer already exists, destroying old one');
-            try { peerRef.current.removeAllListeners(); peerRef.current.destroy(); } catch(e){}
+            try { peerRef.current.removeAllListeners(); peerRef.current.destroy(); } catch (e) { }
         }
 
         const initiator = !incomingSignal;
@@ -248,7 +268,16 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
             initiator,
             trickle: true,
             stream: streamRef.current || undefined,
-            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+            // PERFORMANCE: Multiple STUN servers for faster ICE gathering
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' }
+                ],
+                iceCandidatePoolSize: 10 // Pre-gather candidates for faster connection
+            }
         });
 
         // remember whether this peer was created as initiator
@@ -281,7 +310,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
             console.log('🤝 WEBRTC CONNECTION ESTABLISHED - INTERVIEW READY');
             setConnectedState(true);
             // Clear handshake retries for this target
-            try { clearHandshakeRetries(targetSid); } catch (e) {}
+            try { clearHandshakeRetries(targetSid); } catch (e) { }
         });
 
         peer.on('error', (err) => {
@@ -399,11 +428,17 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
         }
 
         // Debounce duplicate create attempts for the same sender
-        if (pendingTargetRef.current === sender || creatingTargetRef.current[sender]) {
-            console.log(`⏳ Duplicate offer from ${sender} while creating peer — ignoring`);
+        if (creatingTargetRef.current[sender]) {
+            console.log(`⏳ Already creating peer for ${sender} — ignoring duplicate offer`);
             return;
         }
 
+        // Clear pending target since we're now processing the offer
+        if (pendingTargetRef.current === sender) {
+            pendingTargetRef.current = null;
+        }
+
+        console.log(`   ✅ Creating peer as NON-INITIATOR to answer offer from ${sender}`);
         createPeer(sender, sdp);
     }, []);
 
@@ -514,9 +549,13 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
                     return;
                 }
 
+                // PERFORMANCE: Force websocket-only for faster initial connection
                 socketRef.current = io(socketUrl, {
                     path: '/socket.io/',
-                    transports: ['websocket', 'polling']
+                    transports: ['websocket'], // Skip polling, websocket is faster
+                    upgrade: false, // Don't try to upgrade, stay on websocket
+                    reconnectionAttempts: 5,
+                    reconnectionDelay: 1000
                 });
 
                 socketRef.current.on('connect', () => {
@@ -580,9 +619,15 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
 
                 socketRef.current.on('existing_participants', ({ participants }) => {
                     console.log(`👥 Existing participants: ${participants.join(', ')}`);
+                    // GLARE FIX: Only the designated initiator (recruiter) creates the peer
+                    // The candidate waits for the offer to avoid collision
                     if (isInitiator && participants.length > 0) {
-                        console.log(`   🚀 Immediately creating peer with first participant for fast video start`);
+                        console.log(`   🚀 Initiator creating peer with first participant`);
                         createPeer(participants[0]);
+                    } else if (participants.length > 0) {
+                        console.log(`   ⏳ Non-initiator waiting for offer from: ${participants[0]}`);
+                        // Store target so we can create peer when offer arrives
+                        pendingTargetRef.current = participants[0];
                     }
                 });
 
@@ -648,7 +693,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
             }
         };
 
-                const handleBlur = () => {
+        const handleBlur = () => {
             if (!enableProctoring) return;
             socketRef.current?.emit('proctor_event', {
                 type: 'window_blur',
@@ -763,7 +808,7 @@ export const useWebRTC = ({ roomId, userId, userRole, isInitiator = false, enabl
 
     const stopScreenShare = useCallback(() => {
         console.log('⏹️ Stopping Screen Share');
-                if (screenStreamRef.current) {
+        if (screenStreamRef.current) {
             screenStreamRef.current.getTracks().forEach(t => t.stop());
 
             // 2. Emit Stop Event
