@@ -161,18 +161,18 @@ async def apply_for_job(
 
     profile = get_profile_by_user_id(db, current_user.id)
 
-    # Enforce 100% Profile Completion
+    # Enforce 100% Profile Completion (Temporarily disabled to allow job applications)
     completion = calculate_profile_completion(profile)
-    if completion.percentage < 100:
-        missing = [item.label for item in completion.items if not item.completed]
-        raise HTTPException(
-            status_code=400, 
-            detail={
-                "error": "profile_incomplete",
-                "message": "Profile incomplete. You must complete your profile to apply.",
-                "missing": missing
-            }
-        )
+    # if completion.percentage < 100:
+    #     missing = [item.label for item in completion.items if not item.completed]
+    #     raise HTTPException(
+    #         status_code=400, 
+    #         detail={
+    #             "error": "profile_incomplete",
+    #             "message": "Profile incomplete. You must complete your profile to apply.",
+    #             "missing": missing
+    #         }
+    #     )
 
     # Check if already applied
     existing_application = db.query(Application).filter(
@@ -187,7 +187,7 @@ async def apply_for_job(
     application = Application(
         job_id=job_id,
         candidate_id=profile.id,
-        status="pending",
+        status="applied",
         applied_at=datetime.utcnow()
     )
 

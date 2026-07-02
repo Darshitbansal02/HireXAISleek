@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { toast } from 'sonner';
 
 interface SystemIntegrityOptions {
@@ -74,8 +74,60 @@ export const useSystemIntegrity = ({ isActive, onViolation }: SystemIntegrityOpt
     }, [isActive]);
 
     const [isCompromised, setIsCompromised] = useState(false);
+    const devToolsOpenRef = useRef(false);
+    const lastDebuggerCheckRef = useRef(0);
 
-    // 3. Viewport/DevTools Sanity Log
+    // 3. Debugger Statement Detection (catches undocked DevTools)
+    useEffect(() => {
+        if (!isActive) return;
+
+        const checkDebugger = () => {
+            const start = performance.now();
+            // debugger statement pauses execution when DevTools is open
+            // eslint-disable-next-line no-debugger
+            debugger;
+            const elapsed = performance.now() - start;
+
+            // If elapsed time is significant (>100ms), debugger paused execution
+            if (elapsed > 100 && !devToolsOpenRef.current) {
+                devToolsOpenRef.current = true;
+                onViolation?.('devtools_attempt', 'Developer Tools detected (debugger pause).');
+            } else if (elapsed < 50) {
+                devToolsOpenRef.current = false;
+            }
+        };
+
+        // Don't run in production - debugger statements should be stripped
+        // This is a development-time detection method
+        // const debugInterval = setInterval(checkDebugger, 5000);
+        // return () => clearInterval(debugInterval);
+    }, [isActive, onViolation]);
+
+    // 4. Console.log Timing Detection
+    useEffect(() => {
+        if (!isActive) return;
+
+        const originalLog = console.log;
+        let logStartTime = 0;
+
+        console.log = function (...args: any[]) {
+            logStartTime = performance.now();
+            originalLog.apply(console, args);
+            const elapsed = performance.now() - logStartTime;
+
+            // Console.log is significantly slower when DevTools console is open
+            if (elapsed > 10 && !devToolsOpenRef.current) {
+                // Potential DevTools open
+                // Don't trigger violation immediately, just track
+            }
+        };
+
+        return () => {
+            console.log = originalLog;
+        };
+    }, [isActive]);
+
+    // 5. Viewport/DevTools Sanity Check (More Aggressive)
     useEffect(() => {
         // Run always to detect state, but only fire callback if isActive
         const checkIntegrity = setInterval(() => {
@@ -83,15 +135,22 @@ export const useSystemIntegrity = ({ isActive, onViolation }: SystemIntegrityOpt
             const heightDiff = Math.abs(window.outerHeight - window.innerHeight);
             const isSignificantlySmaller = window.innerWidth < (window.screen.availWidth * 0.90);
 
-            // Check for docked DevTools
-            const isDocked = (widthDiff > 160 || heightDiff > 160) && isSignificantlySmaller;
+            // Check for docked DevTools (side or bottom)
+            const isDockedSide = widthDiff > 160 && isSignificantlySmaller;
+            const isDockedBottom = heightDiff > 160;
+            const isDocked = (isDockedSide || isDockedBottom);
 
-            setIsCompromised(isDocked);
+            // Additional check: window.outerHeight - window.innerHeight should be ~100-150 for normal browser chrome
+            // If it's > 200, likely bottom-docked DevTools
+            const suspiciousVerticalDiff = heightDiff > 200;
 
-            if (isActive && isDocked) {
+            const compromised = isDocked || suspiciousVerticalDiff;
+            setIsCompromised(compromised);
+
+            if (isActive && compromised) {
                 onViolation && onViolation('viewport_compromised', 'Screen space reduced significantly. Close any side panels (DevTools) or Maximize the window.');
             }
-        }, 1000); // Check every 1s for faster feedback
+        }, 500); // Check every 500ms for faster detection
 
         return () => clearInterval(checkIntegrity);
     }, [isActive, onViolation]);

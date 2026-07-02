@@ -74,7 +74,10 @@ export default function TestPage() {
                 }
 
                 if (data.status === "completed") {
-                    setStarted(true);
+                    // Immediately redirect to dashboard if test is completed
+                    // This prevents back button re-entry after finishing test
+                    router.replace("/candidate");
+                    return;
                 }
 
                 if (data.status === "started" || data.status === "completed") {
@@ -188,7 +191,8 @@ export default function TestPage() {
         } catch (e) {
             console.error("Force submit failed", e);
         } finally {
-            router.push("/candidate");
+            // Use replace to prevent back button navigation
+            router.replace("/candidate");
         }
     };
 
@@ -233,25 +237,40 @@ export default function TestPage() {
     };
 
     const handleFinalSubmit = async () => {
-        setSubmitting(true);
-        try {
-            // Ensure current question is saved
-            const question = assignment.test.questions[currentQuestionIndex];
-            await apiClient.saveDraft(assignmentId, {
-                question_id: question.id,
-                code: question.q_type === 'mcq' ? (selectedOption || "") : code,
-                language: question.q_type === 'mcq' ? 'text' : language
-            });
+        // Prevent double-clicks - early return if already submitting
+        if (submitting) return;
 
+        setSubmitting(true);
+        setShowConfirmSubmit(false); // Close dialog immediately for better UX
+
+        try {
+            // Try to save current answer first (non-blocking - don't fail if this fails)
+            try {
+                const question = assignment.test.questions[currentQuestionIndex];
+                await apiClient.saveDraft(assignmentId, {
+                    question_id: question.id,
+                    code: question.q_type === 'mcq' ? (selectedOption || "") : code,
+                    language: question.q_type === 'mcq' ? 'text' : language
+                });
+            } catch (saveError) {
+                // Draft save failed, but we should still finish the test
+                console.warn("Draft save failed before finish:", saveError);
+            }
+
+            // Always call finishTest - this is the critical operation
             await apiClient.finishTest(assignmentId);
             toast.success("Test submitted successfully!");
-            router.push("/candidate");
+
         } catch (error) {
-            toast.error("Failed to submit test");
-        } finally {
-            setSubmitting(false);
-            setShowConfirmSubmit(false);
+            console.error("Finish test failed:", error);
+            toast.error("Failed to submit test. Please try again.");
+            setSubmitting(false); // Only reset if failed, so user can retry
+            return; // Don't navigate if finish failed
         }
+
+        // Navigate after successful completion (don't reset submitting state here)
+        // This prevents state updates after unmount
+        router.replace("/candidate");
     };
 
     const handleStart = async () => {
@@ -431,46 +450,51 @@ export default function TestPage() {
         );
     }
 
+    // HARD BLOCKER: If system integrity is compromised, render ONLY the warning screen
+    // This prevents any bypass attempts - the start button doesn't exist in the DOM when compromised
+    if (!started && isCompromised) {
+        return (
+            <MobileBlocker>
+                <div className="fixed inset-0 z-[9999] bg-background flex items-center justify-center p-4">
+                    <Card className="w-full max-w-lg shadow-2xl border-destructive/20 bg-destructive/5">
+                        <CardHeader className="text-center pb-2">
+                            <div className="flex justify-center mb-4">
+                                <div className="p-4 rounded-full bg-destructive/10 animate-pulse">
+                                    <AlertTriangle className="w-12 h-12 text-destructive" />
+                                </div>
+                            </div>
+                            <CardTitle className="text-2xl font-bold tracking-tight text-destructive">
+                                System Integrity Check Failed
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6 text-center">
+                            <p className="text-muted-foreground text-lg">
+                                We detected an open Developer Tools window or resized viewport.
+                                This is a violation of the exam environment rules.
+                            </p>
+
+                            <div className="p-4 bg-background rounded-xl border border-destructive/10 text-left">
+                                <p className="font-semibold text-destructive mb-2">Required Actions:</p>
+                                <ul className="list-disc list-inside text-sm text-foreground/80 space-y-1">
+                                    <li>Close Developer Tools (F12 / Ctrl+Shift+I)</li>
+                                    <li>Maximize your browser window completely</li>
+                                    <li>Ensure no sidebars are docked</li>
+                                </ul>
+                            </div>
+
+                            <Button size="lg" className="w-full bg-destructive hover:bg-destructive/90 text-white shadow-lg shadow-destructive/20" onClick={() => window.location.reload()}>
+                                I have fixed it, Refresh Page
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+            </MobileBlocker>
+        );
+    }
+
     if (!started) {
         return (
             <MobileBlocker>
-                {/* Pre-flight Blocker */}
-                {isCompromised && (
-                    <div className="fixed inset-0 z-[9999] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-                        <Card className="w-full max-w-lg shadow-2xl border-destructive/20 bg-destructive/5">
-                            <CardHeader className="text-center pb-2">
-                                <div className="flex justify-center mb-4">
-                                    <div className="p-4 rounded-full bg-destructive/10 animate-pulse">
-                                        <AlertTriangle className="w-12 h-12 text-destructive" />
-                                    </div>
-                                </div>
-                                <CardTitle className="text-2xl font-bold tracking-tight text-destructive">
-                                    System Integrity Check Failed
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-6 text-center">
-                                <p className="text-muted-foreground text-lg">
-                                    We detected an open Developer Tools window or resized viewport.
-                                    This is a violation of the exam environment rules.
-                                </p>
-
-                                <div className="p-4 bg-background rounded-xl border border-destructive/10 text-left">
-                                    <p className="font-semibold text-destructive mb-2">Required Actions:</p>
-                                    <ul className="list-disc list-inside text-sm text-foreground/80 space-y-1">
-                                        <li>Close Developer Tools (F12 / Ctrl+Shift+I)</li>
-                                        <li>Maximize your browser window completely</li>
-                                        <li>Ensure no sidebars are docked</li>
-                                    </ul>
-                                </div>
-
-                                <Button size="lg" className="w-full bg-destructive hover:bg-destructive/90 text-white shadow-lg shadow-destructive/20" onClick={() => window.location.reload()}>
-                                    I have fixed it, Refresh Page
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    </div>
-                )}
-
                 <div className="flex items-center justify-center h-screen bg-background p-4">
                     <Card className="w-full max-w-2xl shadow-2xl border-primary/10">
                         <CardHeader className="text-center pb-2">
@@ -605,18 +629,39 @@ export default function TestPage() {
                 </TestLayout>
 
                 {/* Confirmation Dialog */}
-                <Dialog open={showConfirmSubmit} onOpenChange={setShowConfirmSubmit}>
-                    <DialogContent>
+                <Dialog open={showConfirmSubmit} onOpenChange={(open) => {
+                    // Only allow closing via cancel button, not by clicking outside
+                    if (!open && !submitting) {
+                        setShowConfirmSubmit(false);
+                    }
+                }}>
+                    <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
                         <DialogHeader>
                             <DialogTitle>Finish Test?</DialogTitle>
                             <DialogDescription>
-                                Are you sure you want to quit? You cannot return to the test once submitted.
+                                Are you sure you want to submit? You cannot return to the test once submitted.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setShowConfirmSubmit(false)}>Cancel</Button>
-                            <Button onClick={handleFinalSubmit} disabled={submitting}>
-                                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Submit"}
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setShowConfirmSubmit(false)}
+                                disabled={submitting}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleFinalSubmit();
+                                }}
+                                disabled={submitting}
+                            >
+                                {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                {submitting ? "Submitting..." : "Confirm Submit"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>

@@ -10,6 +10,7 @@ import { Plus, Trash2, Sparkles, Wand2, Save, ArrowRight, ArrowLeft, Download } 
 import { apiClient } from "@/lib/api-client";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Helper component for comma-separated inputs to avoid cursor jumping
 function CommaSeparatedInput({
@@ -59,7 +60,7 @@ function CommaSeparatedInput({
 }
 
 export function BuilderWizard() {
-    const { resume, updatePersonalInfo, addExperience, updateExperience, removeExperience, addEducation, updateEducation, removeEducation, addProject, updateProject, removeProject, updateSkills, saveResume, isSaving } = useResumeStore();
+    const { resume, updatePersonalInfo, addExperience, updateExperience, removeExperience, addEducation, updateEducation, removeEducation, addProject, updateProject, removeProject, updateSkills, saveResume, isSaving, selectedTemplate, setSelectedTemplate } = useResumeStore();
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState("personal");
     const [polishing, setPolishing] = useState<string | null>(null);
@@ -137,9 +138,24 @@ export function BuilderWizard() {
 
     return (
         <div className="h-full flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">Resume Builder</h2>
-                <div className="flex gap-2">
+            <div className="flex items-center justify-between mb-4 bg-white p-4 rounded-lg border shadow-sm">
+                <div>
+                    <h2 className="text-2xl font-bold">Resume Builder</h2>
+                    <p className="text-sm text-muted-foreground">Craft your professional story</p>
+                </div>
+                <div className="flex gap-3 items-center">
+                    <div className="w-[180px]">
+                        <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select Template" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="modern">Modern (Clean)</SelectItem>
+                                <SelectItem value="professional">Professional (Classic)</SelectItem>
+                                <SelectItem value="creative">Creative (Bold)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                     <Button variant="outline" onClick={handleDownloadPDF} title="Download PDF">
                         <Download className="mr-2 h-4 w-4" /> PDF
                     </Button>

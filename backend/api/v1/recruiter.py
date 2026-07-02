@@ -58,27 +58,27 @@ async def get_job_applications(
     
     # Manually load candidate data and resume for each application
     for app in applications:
-        app.candidate = db.query(User).filter(User.id == app.candidate_id).first()
+        # app.candidate_id refers to candidate_profiles.id
+        profile = db.query(CandidateProfile).filter(CandidateProfile.id == app.candidate_id).first()
+        if not profile:
+            continue
+            
+        app.candidate_profile = profile
+        
+        # Get candidate user
+        app.candidate = db.query(User).filter(User.id == profile.user_id).first()
         
         # Robustness: Handle missing candidate user
         if not app.candidate:
             continue
-            
-        # Get Candidate Profile (Basic Info)
-        try:
-            profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == app.candidate_id).first()
-            if profile:
-                app.candidate_profile = profile
-        except Exception as e:
-            print(f"Error fetching profile for candidate {app.candidate_id}: {e}")
 
-        # Get primary resume
+        # Get primary resume (Resume.candidate_id maps to User.id from resume routes)
         try:
-            resume = db.query(Resume).filter(Resume.candidate_id == app.candidate_id, Resume.is_primary == True).first()
+            resume = db.query(Resume).filter(Resume.candidate_id == profile.user_id, Resume.is_primary == True).first()
             if resume:
                 app.resume_content = resume.content
         except Exception as e:
-            print(f"Error fetching resume for candidate {app.candidate_id}: {e}")
+            print(f"Error fetching resume for candidate {profile.user_id}: {e}")
             # Continue without resume content
     
     return applications
@@ -248,6 +248,25 @@ async def shortlist_candidate(
     db.add(shortlist_entry)
     db.commit()
     db.refresh(shortlist_entry)
+
+    # --- AUTO-UPDATE APPLICATION STATUS ---
+    # If shortlisting for a specific job, update the application status to "shortlisted"
+    if shortlist_in.job_id:
+        try:
+            application = db.query(Application).filter(
+                Application.job_id == shortlist_in.job_id,
+                Application.candidate_id == candidate_profile.id
+            ).first()
+            
+            # Only update if application exists and not already in a later stage
+            if application and application.status in ["applied", "pending"]:
+                application.status = "shortlisted"
+                application.updated_at = datetime.utcnow()
+                db.commit()
+                print(f"[DEBUG] Auto-updated application {application.id} status to 'shortlisted'")
+        except Exception as e:
+            print(f"[ERROR] Failed to auto-update application status: {e}")
+            # Don't fail the request, just log it
     
     # Create Notification for Candidate
     try:
@@ -428,6 +447,25 @@ async def schedule_event(
     db.add(event)
     db.commit()
     db.refresh(event)
+
+    # --- AUTO-UPDATE APPLICATION STATUS ---
+    # If Recruiter schedules an interview, update the application status to "interview"
+    if event.event_type == "interview" and event.job_id:
+        try:
+            application = db.query(Application).filter(
+                Application.job_id == event.job_id,
+                Application.candidate_id == candidate_profile.id
+            ).first()
+            
+            # Only update if not already in a terminal or later state
+            if application and application.status not in ["interview", "offer", "rejected"]:
+                application.status = "interview"
+                application.updated_at = datetime.utcnow()
+                db.commit()
+                print(f"[DEBUG] Auto-updated application {application.id} status to 'interview'")
+        except Exception as e:
+            print(f"[ERROR] Failed to auto-update application status: {e}")
+            # Don't fail the request, just log it
 
     # --- SYNC WITH TEST ASSIGNMENT ---
     # If Recruiter schedules a "test", we must block the actual TestAssignment

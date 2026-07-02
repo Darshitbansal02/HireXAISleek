@@ -1,11 +1,11 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Briefcase, Clock, Sparkles, Bookmark, TrendingUp } from "lucide-react";
-import { SkillBadge } from "./SkillBadge";
+import { MapPin, Briefcase, Clock, Sparkles, TrendingUp, Building2, ArrowRight, Star } from "lucide-react";
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface JobCardProps {
   job: {
@@ -16,7 +16,7 @@ interface JobCardProps {
     type: string;
     postedAt: string;
     matchScore?: number;
-    skills: string[];
+    skills: string | string[];
     salary?: string;
     description?: string;
     minExperience?: number;
@@ -29,8 +29,10 @@ interface JobCardProps {
 }
 
 export function JobCard({ job, onApply, onClick, isApplying = false, hasApplied = false, footer }: JobCardProps) {
+  const skillsArray = Array.isArray(job.skills) ? job.skills : (job.skills?.split(',').map(s => s.trim()).filter(Boolean) || []);
+
   const handleApplyClick = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click when clicking apply
+    e.stopPropagation();
     if (onApply) {
       await onApply(job.id);
     }
@@ -38,147 +40,115 @@ export function JobCard({ job, onApply, onClick, isApplying = false, hasApplied 
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -6 }}
-      transition={{ duration: 0.3 }}
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      whileHover={{ y: -8, scale: 1.01 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
       onClick={onClick}
-      className={onClick ? "cursor-pointer" : ""}
+      className={cn(onClick ? "cursor-pointer" : "", "h-full")}
     >
-      <Card
-        className="group relative overflow-hidden border-premium hover:border-primary/50 transition-all duration-500 bg-card/50 backdrop-blur-sm hover:shadow-2xl hover:-translate-y-1"
-        data-testid={`card-job-${job.id}`}
-      >
-        {/* Gradient Background on Hover */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      <div className="group relative h-full bg-white dark:bg-black/40 backdrop-blur-xl rounded-[2rem] border border-white/20 dark:border-white/10 shadow-lg hover:shadow-2xl hover:shadow-primary/20 transition-all duration-500 overflow-hidden isolate">
 
-        {/* Match Score Badge - Floating */}
-        {job.matchScore && (
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: "spring" }}
-            className="absolute top-4 right-4 z-10"
-          >
-            <Badge
-              className="bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-lg px-3 py-1.5"
-              data-testid={`badge-match-${job.id}`}
-            >
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              <span className="font-semibold">{job.matchScore}% Match</span>
-            </Badge>
-          </motion.div>
-        )}
+        {/* Animated Gradient border effect */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/30 via-transparent to-purple-500/30 opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
 
-        <CardHeader className="relative z-10 pb-4">
-          <div className="flex items-start justify-between gap-4 pr-24">
-            <div className="flex-1 space-y-2">
-              <CardTitle className="text-xl font-bold group-hover:text-primary transition-colors leading-tight">
-                {job.title}
-              </CardTitle>
-              <CardDescription className="text-base font-medium flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Briefcase className="h-4 w-4 text-primary" />
+        {/* Top Decorative Blob */}
+        <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all duration-500" />
+
+        <div className="p-6 md:p-8 flex flex-col h-full relative z-10">
+
+          {/* Header Area */}
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 border border-white/50 shadow-inner flex items-center justify-center group-hover:rotate-3 transition-transform duration-300">
+                  <Building2 className="h-7 w-7 text-primary" />
                 </div>
-                {job.company}
-              </CardDescription>
+                {job.matchScore && (
+                  <div className="absolute -bottom-2 -right-2 bg-gradient-to-r from-primary to-blue-600 text-[10px] font-bold text-white px-2 py-0.5 rounded-full shadow-md border border-white/20">
+                    {job.matchScore}%
+                  </div>
+                )}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-foreground leading-tight group-hover:text-primary transition-colors duration-300">
+                  {job.title}
+                </h3>
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5 mt-1">
+                  {job.company}
+                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+                  <span className="text-xs opacity-70">Top Rated</span>
+                </p>
+              </div>
             </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full hover:bg-white/50 dark:hover:bg-white/10 text-muted-foreground -mr-2"
+            >
+              <Star className="h-5 w-5" />
+            </Button>
           </div>
-        </CardHeader>
 
-        <CardContent className="space-y-5 relative z-10">
-          {/* Job Details */}
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
-              <MapPin className="h-4 w-4 text-primary" />
-              <span className="font-medium">{job.location}</span>
-            </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
-              <Briefcase className="h-4 w-4 text-primary" />
-              <span className="font-medium">{job.type}</span>
-            </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
-              <Clock className="h-4 w-4 text-primary" />
-              <span className="font-medium">{job.postedAt}</span>
-            </div>
-          </div>
-
-          {/* Salary */}
-          {job.salary && (
-            <div className="flex items-center gap-2 text-lg font-bold text-primary">
-              <TrendingUp className="h-5 w-5" />
-              {job.salary}
-            </div>
-          )}
-
-          {/* Skills */}
-          <div className="flex flex-wrap gap-2">
-            {job.skills.slice(0, 5).map((skill) => (
-              <SkillBadge key={skill} skill={skill} />
-            ))}
-            {job.skills.length > 5 && (
-              <Badge variant="outline" className="text-xs">
-                +{job.skills.length - 5} more
-              </Badge>
+          {/* Tags - Glassmorphic Pills */}
+          <div className="flex flex-wrap gap-2.5 mb-6">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/5 text-primary border border-primary/10 backdrop-blur-sm">
+              <Briefcase className="h-3.5 w-3.5" />
+              {job.type}
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-secondary/50 text-secondary-foreground border border-white/10 backdrop-blur-sm">
+              <MapPin className="h-3.5 w-3.5" />
+              {job.location}
+            </span>
+            {job.salary && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/10 backdrop-blur-sm">
+                <TrendingUp className="h-3.5 w-3.5" />
+                {job.salary}
+              </span>
             )}
           </div>
 
-          {/* Minimum Experience */}
-          {job.minExperience !== undefined && job.minExperience > 0 && (
-            <div className="text-sm text-muted-foreground">
-              <span className="font-medium">Experience: </span>
-              {job.minExperience}+ years
-            </div>
-          )}
+          {/* Skills - Tiny Dots visualization */}
+          <div className="mb-6 flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest text-[10px]">Skills</span>
+            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+          </div>
+          <div className="flex flex-wrap gap-2 mb-auto">
+            {skillsArray.slice(0, 3).map(skill => (
+              <Badge key={skill} variant="outline" className="text-xs font-normal border-white/20 bg-white/40 dark:bg-black/20 backdrop-blur-md hover:bg-primary/5 hover:border-primary/20 transition-colors">
+                {skill}
+              </Badge>
+            ))}
+            {skillsArray.length > 3 && (
+              <span className="text-[10px] flex items-center justify-center h-5 px-1.5 rounded-full bg-muted text-muted-foreground font-medium">
+                +{skillsArray.length - 3}
+              </span>
+            )}
+          </div>
 
-          {/* Description Preview */}
-          {job.description && (
-            <div className="text-sm text-muted-foreground line-clamp-3 border-l-2 border-primary/30 pl-3 py-1">
-              {job.description}
+          {/* Footer Action - Slide Up Effect */}
+          <div className="mt-6 pt-4 border-t border-border/30 flex items-center justify-between">
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              {job.postedAt}
             </div>
-          )}
 
-          {/* Action Buttons */}
-          {footer ? (
-            footer
-          ) : (
-            <div className="flex gap-3 pt-2">
-              <Button
-                className="flex-1 font-semibold shadow-md hover:shadow-lg transition-all bg-gradient-to-r from-primary to-accent hover:opacity-90"
-                onClick={handleApplyClick}
-                disabled={isApplying || hasApplied}
-                data-testid={`button-apply-${job.id}`}
-              >
-                {hasApplied ? (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Applied
-                  </>
-                ) : isApplying ? (
-                  <>
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      className="h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    />
-                    Applying...
-                  </>
-                ) : (
-                  "Apply Now"
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="hover:bg-accent/10 hover:border-primary/30 transition-colors"
-                data-testid={`button-save-${job.id}`}
-              >
-                <Bookmark className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <Button
+              className={cn(
+                "rounded-full px-6 transition-all duration-300 shadow-lg hover:shadow-primary/30 group-hover:scale-105",
+                hasApplied ? "bg-secondary text-secondary-foreground" : "bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90"
+              )}
+              onClick={handleApplyClick}
+              disabled={isApplying || hasApplied}
+            >
+              {isApplying ? "Wait..." : hasApplied ? "Applied" : "Apply Now"}
+              {!hasApplied && !isApplying && <ArrowRight className="ml-2 h-4 w-4" />}
+            </Button>
+          </div>
+
+        </div>
+      </div>
     </motion.div>
   );
 }

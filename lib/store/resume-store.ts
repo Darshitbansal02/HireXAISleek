@@ -62,7 +62,9 @@ interface ResumeState {
     isSaving: boolean;
     lastSaved: Date | null;
     isDirty: boolean;
+    selectedTemplate: string;
 
+    setSelectedTemplate: (template: string) => void;
     fetchResume: () => Promise<void>;
     saveResume: (isDraft?: boolean) => Promise<void>;
 
@@ -104,6 +106,7 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
     isSaving: false,
     lastSaved: null,
     isDirty: false,
+    selectedTemplate: "modern",
 
     // Fetch resume
     fetchResume: async () => {
@@ -249,4 +252,7 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
             resume: { ...state.resume, skills },
             isDirty: true,
         })),
+
+    setSelectedTemplate: (template) => set({ selectedTemplate: template }),
+
 }));

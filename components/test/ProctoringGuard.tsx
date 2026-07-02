@@ -24,6 +24,11 @@ import { useSystemIntegrity } from '@/hooks/useSystemIntegrity';
 import { useNetworkMonitor } from '@/hooks/useNetworkMonitor';
 import { useClipboardMonitor } from '@/hooks/useClipboardMonitor';
 import { useKeystrokeDynamics } from '@/hooks/useKeystrokeDynamics';
+// Security Enhancement Hooks (Phase 2)
+import { useVMDetection } from '@/hooks/useVMDetection';
+import { useMultiMonitorDetection } from '@/hooks/useMultiMonitorDetection';
+import { useRemoteDesktopDetection } from '@/hooks/useRemoteDesktopDetection';
+import { useLivenessCheck } from '@/hooks/useLivenessCheck';
 
 interface ProctoringGuardProps {
     assignmentId: string;
@@ -175,6 +180,57 @@ const ProctoringGuard: React.FC<ProctoringGuardProps> = ({
     const { isCompromised } = useSystemIntegrity({
         isActive: true, // ALWAYS CHECK INTEGRITY, even during setup/grace period
         onViolation: (type, msg) => handleViolation(type, msg)
+    });
+
+    // --- Security Enhancement Hooks (Phase 2) ---
+    // VM Detection - Always active during test
+    const { isVM, confidence: vmConfidence, indicators: vmIndicators } = useVMDetection({
+        assignmentId,
+        isActive: permissionsGranted && !gracePeriod,
+        onVMDetected: (result) => {
+            console.warn('🚨 VM DETECTED:', result);
+            // VM detection is logged automatically by the hook
+        }
+    });
+
+    // Multi-Monitor Detection - Always active
+    const { isMultiMonitor, monitorInfo } = useMultiMonitorDetection({
+        assignmentId,
+        isActive: permissionsGranted,
+        blockOnMultiMonitor: false, // Just warn, don't block
+        onMultiMonitorDetected: (info) => {
+            console.warn('🖥️ MULTI-MONITOR:', info);
+            toast.warning(`Multiple monitors detected (${info.count}). Focus on this screen.`);
+        }
+    });
+
+    // Remote Desktop Detection - Active during test
+    const { isRDPDetected } = useRemoteDesktopDetection({
+        assignmentId,
+        isActive: isFullscreen && !gracePeriod,
+        onRDPDetected: (indicators) => {
+            console.warn('🖥️ RDP DETECTED:', indicators);
+            // Critical - logged automatically
+        }
+    });
+
+    // Liveness Check - Active during test (every 5 minutes)
+    const {
+        isCheckingLiveness,
+        currentChallenge,
+        completeChallenge,
+        skipChallenge
+    } = useLivenessCheck({
+        assignmentId,
+        isActive: isFullscreen && isCameraReady && !gracePeriod,
+        videoRef,
+        checkIntervalMs: 300000, // 5 minutes
+        onChallengeStart: (challenge) => {
+            toast.info(challenge.instruction, { duration: 8000 });
+        },
+        onChallengeFailed: () => {
+            toast.warning('Liveness check failed. Please stay visible.');
+        }
     });
 
     // --- Face Detection Hook ---

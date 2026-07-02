@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Upload, FileText, CheckCircle2, AlertCircle, Sparkles, ArrowRight, RefreshCw } from "lucide-react";
+import { Loader2, Upload, FileText, CheckCircle2, AlertCircle, Sparkles, ArrowRight, RefreshCw, Scan, BrainCircuit, LineChart, Search } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface AnalysisResult {
   match_score: number;
@@ -29,6 +30,9 @@ export function ResumeDoctor() {
   const [currentFileName, setCurrentFileName] = useState<string>("");
   const [loadedFromProfile, setLoadedFromProfile] = useState(false);
 
+  // Animation State
+  const [processStep, setProcessStep] = useState<"idle" | "scanning" | "analyzing" | "weakpoints" | "finalizing">("idle");
+
   // Check for analyze trigger on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -40,25 +44,22 @@ export function ResumeDoctor() {
   const loadAndAnalyze = async () => {
     try {
       setUploading(true);
-      // 1. Extract text from backend
       const data = await apiClient.extractResumeText();
       if (data.text) {
         setResumeText(data.text);
         setCurrentFileName(data.fileName || "Resume from Profile");
         setLoadedFromProfile(true);
 
-        // Check if analysis already exists in profile
         try {
           const profile = await apiClient.getProfile();
           if (profile && profile.resume_analysis) {
             setResult(profile.resume_analysis);
-            return; // Skip re-analysis if already exists
+            return;
           }
         } catch (e) {
           console.warn("Failed to check existing analysis", e);
         }
 
-        // 2. Trigger analysis if no existing analysis
         await analyzeText(data.text);
       }
     } catch (error) {
@@ -71,94 +72,59 @@ export function ResumeDoctor() {
 
   const analyzeText = async (text: string) => {
     setAnalyzing(true);
+    setProcessStep("scanning");
     setError("");
     setResult(null);
+
+    // Simulate steps for UI effect
+    setTimeout(() => setProcessStep("analyzing"), 1500);
+    setTimeout(() => setProcessStep("weakpoints"), 3500);
+    setTimeout(() => setProcessStep("finalizing"), 5000);
 
     try {
       const response = await apiClient.analyzeResume(text);
 
       try {
         let jsonStr = response.analysis;
-
-        // 1. Remove markdown code blocks
         jsonStr = jsonStr.replace(/```json\n?/g, "").replace(/\n?```/g, "").trim();
-
-        // 2. Extract JSON object (everything between first { and last })
         const firstBrace = jsonStr.indexOf('{');
         const lastBrace = jsonStr.lastIndexOf('}');
-
-        if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-          throw new Error("No valid JSON object found in response");
-        }
-
+        if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) throw new Error("No valid JSON object found");
         jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
 
-        // 3. Try to parse as-is first
         let parsed;
         try {
           parsed = JSON.parse(jsonStr);
-        } catch (firstError) {
-          // 4. If parsing fails, attempt to repair truncated JSON
-          console.warn("Initial JSON parse failed, attempting repair...");
-
-          // Count open/close structures
-          const openBrackets = (jsonStr.match(/\[/g) || []).length;
-          const closeBrackets = (jsonStr.match(/\]/g) || []).length;
-          const openQuotes = (jsonStr.match(/"/g) || []).length;
-
-          // If truncated mid-string, close the string
-          if (openQuotes % 2 !== 0) {
-            jsonStr += '"';
-          }
-
-          // Close any unclosed arrays
-          for (let i = 0; i < (openBrackets - closeBrackets); i++) {
-            jsonStr += ']';
-          }
-
-          // Ensure closing brace
-          if (!jsonStr.trim().endsWith('}')) {
-            jsonStr += '}';
-          }
-
-          // Try parsing the repaired JSON
-          try {
-            parsed = JSON.parse(jsonStr);
-          } catch (repairError) {
-            // If repair still fails, show original error
-            console.error("Failed to parse even after repair:", repairError);
-            console.error("Original response:", response.analysis);
-            throw new Error(
-              `AI response is incomplete or malformed. The AI service may have hit a token limit. Please try with a shorter resume or try again. Technical error: ${(firstError as Error).message}`
-            );
-          }
+        } catch (e) {
+          // Basic repair attempt
+          if (!jsonStr.endsWith('}')) jsonStr += '}';
+          try { parsed = JSON.parse(jsonStr); } catch (e2) { throw new Error("Could not parse AI response."); }
         }
 
-        // 5. Validate the parsed object has required fields
-        if (!parsed.match_score || !parsed.ats_compatibility) {
-          throw new Error("AI response is missing required fields. Please try again.");
-        }
+        if (!parsed.match_score) throw new Error("Missing score in analysis");
 
-        // 6. Ensure arrays exist (even if empty)
+        // Ensure arrays
         parsed.strengths = parsed.strengths || [];
         parsed.weaknesses = parsed.weaknesses || [];
         parsed.missing_keywords = parsed.missing_keywords || [];
         parsed.improvements = parsed.improvements || [];
-        parsed.summary = parsed.summary || "Analysis summary unavailable";
 
-        setResult(parsed);
-
-        // Note: Backend now saves the analysis automatically in analyzeResume endpoint
+        // Wait for animation to finish "finalizing" before showing result
+        setTimeout(() => {
+          setResult(parsed);
+          setAnalyzing(false);
+          setProcessStep("idle");
+        }, 6500); // Ensure total time covers the animation steps
 
       } catch (parseError: any) {
-        console.error("Failed to parse AI response:", parseError);
-        console.error("Raw response:", response.analysis);
-        setError(parseError.message || "Failed to parse AI response. Please try again.");
+        setError("Failed to parse analysis. Please try again.");
+        setAnalyzing(false);
+        setProcessStep("idle");
       }
     } catch (err: any) {
       setError(err.message || "Failed to analyze resume");
-    } finally {
       setAnalyzing(false);
+      setProcessStep("idle");
     }
   };
 
@@ -167,19 +133,15 @@ export function ResumeDoctor() {
       setError("Please upload a PDF, DOCX, or TXT file");
       return;
     }
-
     try {
       setUploading(true);
       setError("");
-      const response = await apiClient.uploadResume(file);
-
-      // Immediately trigger extraction for the new file
+      await apiClient.uploadResume(file);
       const extractionData = await apiClient.extractResumeText();
       if (extractionData.text) {
         setResumeText(extractionData.text);
         setCurrentFileName(file.name);
         setLoadedFromProfile(false);
-        // Clear previous result as it's a new file
         setResult(null);
       }
     } catch (err: any) {
@@ -191,7 +153,6 @@ export function ResumeDoctor() {
 
   const handleAnalyze = () => {
     if (!resumeText.trim()) {
-      // If no text, try to load from profile first
       loadAndAnalyze();
     } else {
       analyzeText(resumeText);
@@ -199,230 +160,311 @@ export function ResumeDoctor() {
   };
 
   return (
-    <div className="space-y-8">
-      <div className="text-center space-y-4">
-        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-600">
-          AI Resume Doctor
+    <div className="space-y-8 animate-in fade-in duration-700">
+      <div className="text-center space-y-4 mb-10">
+        <h2 className="text-4xl font-bold tracking-tight">
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-primary to-indigo-600">
+            Smart Resume Analysis
+          </span>
         </h2>
-        <p className="text-muted-foreground max-w-2xl mx-auto">
-          Get instant, expert feedback on your resume. Our AI analyzes your profile against current job market trends to help you stand out.
+        <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+          Our advanced AI scans your resume against millions of data points to optimize your hiring potential.
         </p>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
-        {/* Input Section */}
-        <Card className="card-premium h-fit">
+      <div className="grid lg:grid-cols-2 gap-8 items-start">
+        {/* Left Panel: Input */}
+        <Card className={cn("border-border/50 shadow-lg transition-all duration-500", analyzing ? "opacity-60 scale-[0.98] blur-[1px]" : "opacity-100")}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
               Resume Content
             </CardTitle>
             <CardDescription>
-              Paste your resume text below or upload a file
+              Upload or paste your resume to begin
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             {/* Upload Zone */}
-            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer relative group">
+            <div className="border-2 border-dashed border-primary/20 bg-primary/5 rounded-xl p-8 text-center hover:bg-primary/10 transition-colors cursor-pointer relative group">
               <input
                 type="file"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 accept=".pdf,.docx,.txt"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleFileUpload(file);
                 }}
-                disabled={uploading}
+                disabled={uploading || analyzing}
               />
-              <div className="pointer-events-none">
+              <div className="pointer-events-none relative z-20">
                 {uploading ? (
-                  <>
-                    <Loader2 className="h-8 w-8 mx-auto text-primary mb-2 animate-spin" />
-                    <p className="text-sm font-medium">Uploading and extracting text...</p>
-                  </>
+                  <div className="flex flex-col items-center">
+                    <Loader2 className="h-10 w-10 text-primary mb-3 animate-spin" />
+                    <p className="text-sm font-semibold">Processing File...</p>
+                  </div>
                 ) : (
-                  <>
-                    <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2 group-hover:text-primary transition-colors" />
-                    <p className="text-sm font-medium">Drop your resume here or click to upload</p>
-                    <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, TXT supported</p>
-                  </>
+                  <div className="flex flex-col items-center">
+                    <div className="h-12 w-12 rounded-full bg-white dark:bg-slate-900 shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <Upload className="h-6 w-6 text-primary" />
+                    </div>
+                    <p className="text-base font-semibold">Click to Upload Resume</p>
+                    <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, TXT</p>
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Status/Source Badge */}
+            {/* Status Badge */}
             {currentFileName && (
-              <div className="flex items-center justify-between gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <FileText className="h-4 w-4 text-primary flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground">Using resume:</p>
-                    <p className="text-sm font-medium truncate">{currentFileName}</p>
-                  </div>
+              <div className="flex items-center justify-between gap-3 p-3 bg-muted/30 border border-border rounded-lg">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-sm font-medium truncate">{currentFileName}</span>
                 </div>
-                {loadedFromProfile && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={loadAndAnalyze}
-                    className="flex-shrink-0"
-                    title="Refresh from profile"
-                  >
-                    <ArrowRight className="h-4 w-4" />
+                {loadedFromProfile && !analyzing && (
+                  <Button variant="ghost" size="icon" onClick={loadAndAnalyze} className="h-6 w-6">
+                    <RefreshCw className="h-3 w-3" />
                   </Button>
                 )}
               </div>
             )}
 
-            {/* Divider */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">Or paste text</span>
-              </div>
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border/60" /></div>
+              <div className="relative flex justify-center text-xs uppercase font-medium"><span className="bg-card px-2 text-muted-foreground">OR PASTE TEXT</span></div>
             </div>
 
-            {/* Resume Text Area */}
             <Textarea
               placeholder="Paste your resume content here..."
-              className="min-h-[300px] font-mono text-sm"
+              className="min-h-[250px] font-mono text-sm bg-muted/10 resize-none focus-visible:ring-primary/20"
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
+              disabled={analyzing}
             />
 
             <Button
-              className="w-full"
-              size="lg"
+              className={cn("w-full h-12 text-base font-semibold shadow-lg shadow-primary/25 transition-all", analyzing ? "bg-muted text-muted-foreground" : "bg-primary hover:bg-primary/90 hover:scale-[1.02]")}
               onClick={handleAnalyze}
               disabled={analyzing || !resumeText.trim()}
             >
               {analyzing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Analyzing...
+                  Analysis in Progress...
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Analyze Resume
+                  Start Full Analysis
                 </>
               )}
             </Button>
 
             {error && (
-              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" />
+              <div className="p-4 bg-red-500/10 text-red-600 dark:text-red-400 text-sm rounded-lg flex items-center gap-3 border border-red-500/20">
+                <AlertCircle className="h-4 w-4 shrink-0" />
                 {error}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Results Section */}
-        <AnimatePresence mode="wait">
-          {result ? (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
-            >
-              {/* Score Card */}
-              <Card className="card-premium overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-purple-600" />
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <div>
-                      <h3 className="text-lg font-semibold">Overall Score</h3>
-                      <p className="text-sm text-muted-foreground">Based on job market standards</p>
-                    </div>
-                    <div className="text-4xl font-bold text-primary">
-                      {result.match_score}/100
-                    </div>
-                  </div>
-                  <Progress value={result.match_score} className="h-2 mb-4" />
+        {/* Right Panel: Result or Processing */}
+        <div className="relative min-h-[600px] h-full">
+          <AnimatePresence mode="wait">
 
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">ATS Compatibility:</span>
-                    <Badge variant={
-                      result.ats_compatibility === "High" ? "default" :
-                        result.ats_compatibility === "Medium" ? "secondary" : "destructive"
-                    }>
-                      {result.ats_compatibility}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
+            {analyzing ? (
+              /* PROCESSING STATE - WHITE THEME ANALYZING UI */
+              <motion.div
+                key="processing"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.05, filter: "blur(10px)" }}
+                className="absolute inset-0 rounded-2xl overflow-hidden border border-border/10 bg-white shadow-2xl flex flex-col items-center justify-center z-20"
+              >
+                {/* CSS Grid Pattern Background */}
+                <div className="absolute inset-0 opacity-40 mix-blend-multiply pointer-events-none"
+                  style={{
+                    backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
+                    backgroundSize: '24px 24px'
+                  }}
+                />
 
-              {/* Analysis Details */}
-              <Card className="card-premium">
-                <CardHeader>
-                  <CardTitle>Detailed Analysis</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div>
-                    <h4 className="font-medium mb-2 flex items-center gap-2 text-green-600 dark:text-green-400">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Strengths
-                    </h4>
-                    <ul className="space-y-2">
-                      {result.strengths.map((item, i) => (
-                        <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                {/* Animated Orbs */}
+                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-100 rounded-full blur-[120px] animate-pulse" />
+                <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-indigo-100 rounded-full blur-[120px] animate-pulse delay-700" />
 
-                  <div>
-                    <h4 className="font-medium mb-2 flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                      <AlertCircle className="h-4 w-4" />
-                      Areas for Improvement
-                    </h4>
-                    <ul className="space-y-2">
-                      {result.weaknesses.map((item, i) => (
-                        <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                <div className="relative z-10 w-full max-w-md px-8 text-center space-y-8">
 
-                  <div>
-                    <h4 className="font-medium mb-2 flex items-center gap-2 text-primary">
-                      <Sparkles className="h-4 w-4" />
-                      Action Plan
-                    </h4>
-                    <div className="space-y-3">
-                      {result.improvements.map((item, i) => (
-                        <div key={i} className="p-3 bg-primary/5 rounded-lg text-sm border border-primary/10">
-                          {item}
-                        </div>
-                      ))}
+                  {/* Icon Animation */}
+                  <div className="relative mx-auto h-24 w-24">
+                    <div className="absolute inset-0 rounded-full border-4 border-blue-100 animate-[spin_3s_linear_infinite]" />
+                    <div className="absolute inset-0 rounded-full border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-[spin_2s_linear_infinite]" />
+
+                    <div className="absolute inset-0 flex items-center justify-center bg-white rounded-full shadow-lg">
+                      {processStep === "scanning" && <Scan className="h-8 w-8 text-primary animate-pulse" />}
+                      {processStep === "analyzing" && <BrainCircuit className="h-8 w-8 text-indigo-500 animate-pulse" />}
+                      {processStep === "weakpoints" && <Search className="h-8 w-8 text-amber-500 animate-pulse" />}
+                      {processStep === "finalizing" && <LineChart className="h-8 w-8 text-green-500 animate-pulse" />}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ) : (
-            <div className="h-full flex items-center justify-center p-12 border-2 border-dashed border-border rounded-xl bg-muted/20">
-              <div className="text-center text-muted-foreground">
-                <div className="bg-background p-4 rounded-full w-fit mx-auto mb-4 shadow-sm">
-                  <Sparkles className="h-8 w-8 text-primary" />
+
+                  {/* Status Text with typing effect */}
+                  <div className="space-y-3">
+                    <h3 className="text-2xl font-bold tracking-tight text-slate-900">
+                      {processStep === "scanning" && "Scanning Resume..."}
+                      {processStep === "analyzing" && "Analyzing Skills..."}
+                      {processStep === "weakpoints" && "Identifying Weak Points..."}
+                      {processStep === "finalizing" && "Compiling Report..."}
+                    </h3>
+                    <p className="text-slate-500 text-sm h-6 font-medium">
+                      {processStep === "scanning" && "Extracting structure and keywords"}
+                      {processStep === "analyzing" && "Matching against market standards"}
+                      {processStep === "weakpoints" && "Finding areas for improvement and gaps"}
+                      {processStep === "finalizing" && "Generating personalized insights"}
+                    </p>
+                  </div>
+
+                  {/* Progress Bar - Custom White/Blue */}
+                  <div className="space-y-2">
+                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600"
+                        initial={{ width: "0%" }}
+                        animate={{
+                          width: processStep === "scanning" ? "25%" :
+                            processStep === "analyzing" ? "50%" :
+                              processStep === "weakpoints" ? "75%" : "95%"
+                        }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-400 uppercase font-bold tracking-widest px-1">
+                      <span className={processStep !== "idle" ? "text-primary" : ""}>Scan</span>
+                      <span className={processStep === "weakpoints" ? "text-primary" : ""}>Weak Points</span>
+                      <span className={processStep === "finalizing" ? "text-primary" : ""}>Done</span>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="font-semibold mb-1">Ready to Analyze</h3>
-                <p className="text-sm max-w-xs mx-auto">
-                  Paste your resume content on the left to get detailed AI feedback and improvement suggestions.
+              </motion.div>
+            ) : result ? (
+              /* RESULT STATE */
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                className="h-full relative"
+              >
+                <Card className="h-full border-border/50 shadow-xl overflow-hidden bg-white/50 dark:bg-card/50 backdrop-blur-md">
+                  <CardHeader className="bg-gradient-to-r from-primary/10 via-transparent to-transparent border-b border-border/50">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-xl">Analysis Report</CardTitle>
+                        <CardDescription>Generated just now</CardDescription>
+                      </div>
+                      <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                        Verified by AI
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0 overflow-y-auto h-[calc(100%-80px)] custom-scrollbar">
+                    <div className="p-6 space-y-8">
+                      {/* Overall Score with Circular Indicator */}
+                      <div className="flex items-center gap-6 p-6 rounded-2xl bg-gradient-to-br from-primary/5 to-purple-500/5 border border-primary/10">
+                        <div className="relative h-20 w-20 flex items-center justify-center">
+                          <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
+                            <path className="text-muted/20" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                            <path className="text-primary" strokeDasharray={`${result.match_score}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                          </svg>
+                          <span className="absolute text-xl font-bold text-primary">{result.match_score}</span>
+                        </div>
+                        <div>
+                          <h4 className="text-lg font-bold">Resume Score</h4>
+                          <p className="text-sm text-muted-foreground mb-2">ATS Compatibility: <strong className="text-foreground">{result.ats_compatibility}</strong></p>
+                          <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">{result.summary}</p>
+                        </div>
+                      </div>
+
+                      {/* Strengths */}
+                      <div>
+                        <h4 className="font-semibold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider text-muted-foreground">
+                          <CheckCircle2 className="h-4 w-4 text-green-500" /> Strong Points
+                        </h4>
+                        <div className="grid gap-3">
+                          {result.strengths.map((item, i) => (
+                            <div key={i} className="flex gap-3 p-3 rounded-lg bg-green-500/5 border border-green-500/10">
+                              <div className="h-1.5 w-1.5 rounded-full bg-green-500 mt-2 shrink-0" />
+                              <p className="text-sm text-foreground/80">{item}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Weak Points (Specific Request to Show These) */}
+                      {result.weaknesses.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider text-red-500/80">
+                            <AlertCircle className="h-4 w-4 text-red-500" /> Weak Points to Fix
+                          </h4>
+                          <div className="grid gap-3">
+                            {result.weaknesses.map((item, i) => (
+                              <div key={i} className="flex gap-3 p-3 rounded-lg bg-red-500/5 border border-red-500/10">
+                                <div className="h-1.5 w-1.5 rounded-full bg-red-500 mt-2 shrink-0" />
+                                <p className="text-sm text-foreground/80">{item}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Improvements */}
+                      <div>
+                        <h4 className="font-semibold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider text-muted-foreground">
+                          <Sparkles className="h-4 w-4 text-primary" /> Recommended Action Plan
+                        </h4>
+                        <div className="grid gap-3">
+                          {result.improvements.map((item, i) => (
+                            <div key={i} className="flex gap-3 p-4 rounded-lg bg-primary/5 border border-primary/10 shadow-sm">
+                              <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-xs font-bold text-primary">
+                                {i + 1}
+                              </div>
+                              <p className="text-sm text-foreground/90 font-medium">{item}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : (
+              /* EMPTY STATE */
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="h-full rounded-2xl border-2 border-dashed border-border/60 bg-muted/5 flex flex-col items-center justify-center p-12 text-center"
+              >
+                <div className="h-20 w-20 bg-gradient-to-br from-primary/10 to-blue-600/10 rounded-full flex items-center justify-center mb-6 shadow-inner">
+                  <Sparkles className="h-10 w-10 text-primary" />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Ready to Analyze</h3>
+                <p className="text-muted-foreground max-w-xs mx-auto mb-8">
+                  Upload your resume on the left to unlock detailed insights and AI-powered optimization tips.
                 </p>
-              </div>
-            </div>
-          )}
-        </AnimatePresence>
+                <div className="flex gap-2">
+                  <Badge variant="secondary" className="px-3 py-1 bg-white dark:bg-slate-900 border-border shadow-sm">ATS Check</Badge>
+                  <Badge variant="secondary" className="px-3 py-1 bg-white dark:bg-slate-900 border-border shadow-sm">Keyword Scan</Badge>
+                  <Badge variant="secondary" className="px-3 py-1 bg-white dark:bg-slate-900 border-border shadow-sm">Scoring</Badge>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
-    </div >
+    </div>
   );
 }

@@ -46,3 +46,9 @@ backend/next_steps.txt
 backend/backend.zip
 backend/backend (2).zip
 hirexai.db
+
+# Cache and build files
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+logs/
+

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.database import get_db
 from core.auth import get_current_user
@@ -177,3 +177,158 @@ async def log_proctor_event(
         "max_warnings": ProctorSettings.MAX_VIOLATIONS_TOTAL,
         "severity": severity_enum
     }
+
+
+# ============================================================================
+# Session Lock API (Server-side Single-Session Enforcement)
+# ============================================================================
+
+# In-memory session locks (in production, use Redis for multi-instance support)
+_session_locks: dict = {}  # {assignment_id: {"user_id": str, "tab_id": str, "expires_at": datetime}}
+
+
+@router.post("/session/lock")
+async def acquire_session_lock(
+    assignment_id: str,
+    tab_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Acquire exclusive session lock for an assignment.
+    Only one tab/browser can hold the lock at a time.
+    """
+    assignment = db.query(TestAssignment).filter(TestAssignment.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+        
+    if str(assignment.candidate_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    now = datetime.utcnow()
+    lock_timeout = ProctorSettings.SESSION_LOCK_TIMEOUT_SECONDS
+
+    # Check for existing lock
+    existing_lock = _session_locks.get(assignment_id)
+    
+    if existing_lock:
+        # Lock exists - check if expired or same tab
+        if existing_lock["expires_at"] > now and existing_lock["tab_id"] != tab_id:
+            # Another active session exists
+            # Log the conflict
+            conflict_log = ProctorLog(
+                assignment_id=assignment.id,
+                event_type="session_lock_conflict",
+                payload={
+                    "existing_tab": existing_lock["tab_id"],
+                    "new_tab": tab_id,
+                    "message": "Multiple session attempt blocked"
+                },
+                severity="high"
+            )
+            db.add(conflict_log)
+            db.commit()
+            
+            return {
+                "success": False,
+                "reason": "session_conflict",
+                "message": "Test is already open in another browser/tab. Close it first.",
+                "expires_in": (existing_lock["expires_at"] - now).seconds
+            }
+    
+    # Grant the lock
+    _session_locks[assignment_id] = {
+        "user_id": str(current_user.id),
+        "tab_id": tab_id,
+        "expires_at": now + timedelta(seconds=lock_timeout)
+    }
+    
+    # Log lock acquisition
+    lock_log = ProctorLog(
+        assignment_id=assignment.id,
+        event_type="session_lock_acquired",
+        payload={"tab_id": tab_id},
+        severity="low"
+    )
+    db.add(lock_log)
+    db.commit()
+    
+    return {
+        "success": True,
+        "tab_id": tab_id,
+        "expires_in": lock_timeout,
+        "message": "Session lock acquired"
+    }
+
+
+@router.post("/session/heartbeat")
+async def session_heartbeat(
+    assignment_id: str,
+    tab_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Keep session lock alive. Must be called every ~10 seconds.
+    """
+    existing_lock = _session_locks.get(assignment_id)
+    
+    if not existing_lock:
+        return {"success": False, "reason": "no_lock", "message": "No active session lock"}
+    
+    if existing_lock["tab_id"] != tab_id:
+        return {"success": False, "reason": "wrong_tab", "message": "Lock belongs to another tab"}
+    
+    if existing_lock["user_id"] != str(current_user.id):
+        return {"success": False, "reason": "wrong_user", "message": "Lock belongs to another user"}
+    
+    # Extend the lock
+    lock_timeout = ProctorSettings.SESSION_LOCK_TIMEOUT_SECONDS
+    _session_locks[assignment_id]["expires_at"] = datetime.utcnow() + timedelta(seconds=lock_timeout)
+    
+    return {
+        "success": True,
+        "expires_in": lock_timeout
+    }
+
+
+@router.delete("/session/lock")
+async def release_session_lock(
+    assignment_id: str,
+    tab_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Release session lock when test ends or tab closes.
+    """
+    existing_lock = _session_locks.get(assignment_id)
+    
+    if not existing_lock:
+        return {"success": True, "message": "No lock to release"}
+    
+    if existing_lock["tab_id"] != tab_id:
+        return {"success": False, "reason": "wrong_tab", "message": "Cannot release another tab's lock"}
+    
+    # Remove the lock
+    del _session_locks[assignment_id]
+    
+    return {"success": True, "message": "Session lock released"}
+
+
+@router.get("/settings")
+async def get_proctor_settings():
+    """
+    Get current proctor settings for frontend configuration.
+    """
+    return {
+        "grace_period_seconds": ProctorSettings.GRACE_PERIOD_SECONDS,
+        "liveness_check_interval_seconds": ProctorSettings.LIVENESS_CHECK_INTERVAL_SECONDS,
+        "block_multi_monitor": ProctorSettings.BLOCK_MULTI_MONITOR,
+        "block_vm": ProctorSettings.BLOCK_VM,
+        "block_remote_desktop": ProctorSettings.BLOCK_REMOTE_DESKTOP,
+        "session_lock_timeout_seconds": ProctorSettings.SESSION_LOCK_TIMEOUT_SECONDS,
+        "max_warnings": ProctorSettings.MAX_VIOLATIONS_TOTAL,
+        "terminate_on_critical": ProctorSettings.TERMINATE_ON_CRITICAL
+    }
+

@@ -28,3 +28,29 @@ class ProctorSettings:
     # --- Severity Overrides (Optional) ---
     # You can toggle specific checks effectively off by ignoring them or setting high limits
     # but actual event logic is in proctoring.py. These control the decision thresholds.
+
+    # --- Security Enhancement Settings (Phase 2) ---
+    # Grace period in seconds before proctoring is active
+    # Default: 5
+    GRACE_PERIOD_SECONDS = 5
+
+    # How often to trigger liveness checks (in seconds)
+    # Default: 300 (5 minutes)
+    LIVENESS_CHECK_INTERVAL_SECONDS = 300
+
+    # If True, block test when multiple monitors detected
+    # Default: False (just log warning)
+    BLOCK_MULTI_MONITOR = False
+
+    # If True, block test when VM detected with high confidence
+    # Default: True (critical security risk)
+    BLOCK_VM = True
+
+    # If True, block test when remote desktop detected
+    # Default: True (critical security risk)
+    BLOCK_REMOTE_DESKTOP = True
+
+    # Session lock timeout in seconds (for server-side single-session enforcement)
+    # Default: 30 (session expires if no heartbeat for 30s)
+    SESSION_LOCK_TIMEOUT_SECONDS = 30
+

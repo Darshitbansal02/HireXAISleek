@@ -37,6 +37,13 @@ class ProctorEventType(str, Enum):
     CLIPBOARD_PASTE_DETECTED = "clipboard_paste_detected"
     KEYSTROKE_ANOMALY = "keystroke_anomaly"
     KEYSTROKE_BASELINE_ESTABLISHED = "keystroke_baseline_established"
+    # Security Enhancement Events (Phase 2)
+    VM_DETECTED = "vm_detected"
+    MULTI_MONITOR_DETECTED = "multi_monitor_detected"
+    REMOTE_DESKTOP_DETECTED = "remote_desktop_detected"
+    LIVENESS_CHALLENGE_FAILED = "liveness_challenge_failed"
+    SESSION_LOCK_CONFLICT = "session_lock_conflict"
+    SESSION_LOCK_ACQUIRED = "session_lock_acquired"
 
 
 class ProctorEventSeverity(str, Enum):
@@ -86,6 +93,14 @@ EVENT_SEVERITY_MAP: Dict[ProctorEventType, ProctorEventSeverity] = {
     ProctorEventType.CLIPBOARD_PASTE_DETECTED: ProctorEventSeverity.HIGH,
     ProctorEventType.KEYSTROKE_ANOMALY: ProctorEventSeverity.MEDIUM,
     ProctorEventType.KEYSTROKE_BASELINE_ESTABLISHED: ProctorEventSeverity.LOW,
+    
+    # Security Enhancement Events (Phase 2)
+    ProctorEventType.VM_DETECTED: ProctorEventSeverity.CRITICAL,
+    ProctorEventType.MULTI_MONITOR_DETECTED: ProctorEventSeverity.HIGH,
+    ProctorEventType.REMOTE_DESKTOP_DETECTED: ProctorEventSeverity.CRITICAL,
+    ProctorEventType.LIVENESS_CHALLENGE_FAILED: ProctorEventSeverity.HIGH,
+    ProctorEventType.SESSION_LOCK_CONFLICT: ProctorEventSeverity.HIGH,
+    ProctorEventType.SESSION_LOCK_ACQUIRED: ProctorEventSeverity.LOW,
 }
 
 
